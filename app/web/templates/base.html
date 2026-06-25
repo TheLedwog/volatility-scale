@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trade / Don't-Trade Scale</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+</head>
+<body>
+  <header>
+    <div class="brand">📊 Trade / Don't-Trade Scale</div>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/history">History</a>
+      <a href="/settings">Settings</a>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer>Phase 1 · rule-based engine · decision support, not financial advice</footer>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Settings</h1>
+  {% if saved %}<p class="alert alert-ok">Saved.</p>{% endif %}
+  {% if error %}<p class="alert alert-veto">Error — {{ error }}</p>{% endif %}
+  <p class="muted small">Edit each section as JSON. Stored in the database; changes apply on the
+    next prediction (schedule times apply on next app start). <code>weights</code> should sum to ~1.0.
+    Move an event category between <code>veto_categories</code> and <code>warn_categories</code> to
+    change how the gate treats it.</p>
+
+  <form method="post" action="/settings">
+    {% for key, val in sections.items() %}
+      <label class="seclabel">{{ key }}</label>
+      <textarea name="{{ key }}" rows="{{ val.split('\n')|length + 1 }}" spellcheck="false">{{ val }}</textarea>
+    {% endfor %}
+    <div class="btnrow"><button class="btn" type="submit">Save settings</button></div>
+  </form>
+
+  <form method="post" action="/settings/reset"
+        onsubmit="return confirm('Reset ALL settings to defaults?')">
+    <button class="btn btn-secondary" type="submit">Reset to defaults</button>
+  </form>
+</div>
+{% endblock %}

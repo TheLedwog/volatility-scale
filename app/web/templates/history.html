@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="verdict-row">
+    <h1>History &amp; accuracy</h1>
+    <form method="post" action="/run-label"><button class="btn">Label latest session</button></form>
+  </div>
+  <div class="acc">
+    <div class="stat"><span class="muted">Labeled days</span><b>{{ acc.samples }}</b></div>
+    <div class="stat"><span class="muted">Avg ER · predicted GOOD</span>
+      <b>{{ acc.avg_er_good if acc.avg_er_good is not none else '—' }}</b></div>
+    <div class="stat"><span class="muted">Avg ER · predicted AVOID</span>
+      <b>{{ acc.avg_er_avoid if acc.avg_er_avoid is not none else '—' }}</b></div>
+    <div class="stat"><span class="muted">VETO days that chopped</span>
+      <b>{% if acc.veto_chop_rate is not none %}{{ (acc.veto_chop_rate*100)|round|int }}% of {{ acc.veto_days }}{% else %}—{% endif %}</b></div>
+  </div>
+  <p class="muted small">Healthy signal = avg ER on GOOD days clearly above AVOID days, and a high
+    chop-rate on VETO days. Phase 3 turns this separation into a calibrated, trained model.</p>
+</div>
+
+<div class="card">
+  <table class="hist">
+    <tr><th>Date</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Realized ER</th><th>Outcome</th><th>Range %</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.date }}</td>
+      <td><span class="badge badge-sm">{{ r.tier }}</span></td>
+      <td>{{ r.direction_quality if r.direction_quality is not none else '—' }}</td>
+      <td>{{ r.verdict }}</td>
+      <td>{{ r.realized_er if r.realized_er is not none else '—' }}</td>
+      <td>{{ r.realized_label or '—' }}</td>
+      <td>{{ r.range_pct if r.range_pct is not none else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if not rows %}<p class="muted">No predictions yet — run one from the dashboard.</p>{% endif %}
+</div>
+{% endblock %}

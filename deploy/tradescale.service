@@ -1,0 +1,17 @@
+[Unit]
+Description=Trade / Don't-Trade Scale
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/volatility-scale
+# Change PORT if 8000 is taken by another service on the Pi.
+Environment=PORT=8001
+ExecStart=/home/pi/volatility-scale/.venv/bin/python run.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

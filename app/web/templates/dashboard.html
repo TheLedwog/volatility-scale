@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+{% if not pred %}
+  <div class="card">
+    <h1>No prediction yet</h1>
+    <p class="muted">Build today's verdict from live data.</p>
+    <form method="post" action="/run-predict"><button class="btn">Run prediction now</button></form>
+  </div>
+{% else %}
+  <div class="card state-{{ state }}">
+    <div class="verdict-row">
+      <div>
+        <div class="muted">{{ pred.date }} · New York session</div>
+        <h1 class="verdict">{{ pred.verdict }}</h1>
+      </div>
+      <span class="badge badge-{{ state }}">{{ pred.tier }}</span>
+    </div>
+
+    {% if pred.tier == 'VETO' %}
+      <p class="alert alert-veto">🚫 Hard no-trade: {{ pred.reason }}</p>
+    {% elif pred.tier == 'WARN' %}
+      <p class="alert alert-warn">⚠️ Big pre-open data — your call: {{ pred.warn_note }}</p>
+    {% elif pred.tier == 'CLOSED' %}
+      <p class="alert alert-closed">Market is closed today.</p>
+    {% endif %}
+
+    {% if pred.direction_quality is not none %}
+    <div class="gauge-wrap">
+      <div class="gauge"><div class="needle" style="left: {{ pred.direction_quality }}%"></div></div>
+      <div class="gauge-labels">
+        <span>CHOPPY · don't trade</span>
+        <span class="score">{{ pred.direction_quality }}/100</span>
+        <span>DIRECTIONAL · trade</span>
+      </div>
+      {% if pred.tier == 'VETO' %}<p class="muted small">(Score shown for info — the veto overrides it.)</p>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if pred.features.dead_day %}<p class="muted">💤 Low expected range — possible dead day.</p>{% endif %}
+    {% if pred.features.calendar_error %}<p class="muted">⚠ Calendar feed unavailable: {{ pred.features.calendar_error }}</p>{% endif %}
+
+    <form method="post" action="/run-predict"><button class="btn">↻ Recompute</button></form>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Why — factor breakdown</h2>
+      {% if pred.features.factors %}
+      <table class="factors">
+        {% for f in pred.features.factors %}
+        <tr>
+          <td class="fname">{{ f.label }}{% if not f.available %} <span class="muted">(n/a)</span>{% endif %}</td>
+          <td class="barcell"><div class="bar"><div class="fill" style="width: {{ (f.risk*100)|round|int }}%"></div></div></td>
+          <td class="num">{{ (f.risk*100)|round|int }}%</td>
+        </tr>
+        <tr class="detail"><td colspan="3" class="muted small">weight {{ f.weight }} · {{ f.detail }}</td></tr>
+        {% endfor %}
+      </table>
+      <p class="muted small">Bars = chop risk per factor (higher = choppier).
+        {% if pred.chop_risk is not none %}Blended chop risk {{ (pred.chop_risk*100)|round|int }}%.{% endif %}</p>
+      {% else %}<p class="muted">No factors (market closed).</p>{% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Today's US events</h2>
+      {% if pred.features.events %}
+      <table class="events">
+        {% for e in pred.features.events %}
+        <tr class="{{ 'ev-high' if e.impact|lower == 'high' else '' }}">
+          <td class="etime">{{ e.time_str }}</td>
+          <td>{{ e.title }}</td>
+          <td class="muted small">{{ e.impact }}{% if e.intra_session and e.impact|lower == 'high' %} · intra-session{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}<p class="muted">No USD events found for today (or feed unavailable).</p>{% endif %}
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

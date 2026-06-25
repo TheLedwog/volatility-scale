@@ -1,0 +1,2 @@
+# Normalize line endings to LF in the repo (deploys to Linux / Raspberry Pi).
+* text=auto eol=lf
