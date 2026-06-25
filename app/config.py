@@ -6,6 +6,14 @@ Settings page can change weights/thresholds/lists without a redeploy.
 from __future__ import annotations
 
 import json
+import os
+
+try:  # load a local .env (git-ignored) if python-dotenv is installed
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:  # noqa: BLE001
+    pass
 
 from .db import get_conn, init_db
 
@@ -120,3 +128,13 @@ def reset() -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def openai_api_key(cfg: dict | None = None) -> str:
+    """Resolve the OpenAI key: OPENAI_API_KEY env var first, then stored config.
+
+    The env var is preferred so the key need never be written to the DB or shown
+    in the Settings UI.
+    """
+    cfg = cfg or get_config()
+    return os.environ.get("OPENAI_API_KEY") or cfg.get("providers", {}).get("openai_api_key", "") or ""

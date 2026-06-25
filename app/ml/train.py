@@ -15,7 +15,7 @@ from ..config import get_config
 from ..db import DATA_DIR, get_conn
 from ..timeutils import now_et
 from .dataset import build_dataset, load_dataset
-from .features import FEATURE_COLUMNS
+from .features import FEATURE_COLUMNS, NEWS_FEATURE_COLUMNS
 
 MIN_ROWS = 80
 
@@ -50,7 +50,11 @@ def train(cfg: dict | None = None, df: pd.DataFrame | None = None) -> dict:
         return {"error": f"not enough data ({0 if df.empty else len(df)} rows); need >= {MIN_ROWS}"}
 
     df = df.sort_values("date").reset_index(drop=True)
-    X = df[FEATURE_COLUMNS]
+    # Use base features + any news features that are present and not all-empty
+    # (so news only enters the model after the backfill has populated them).
+    feat_cols = [c for c in (FEATURE_COLUMNS + NEWS_FEATURE_COLUMNS)
+                 if c in df.columns and df[c].notna().any()]
+    X = df[feat_cols]
     y = df["session_er"].astype(float)
     n = len(df)
     split = int(n * (1 - cfg["ml"].get("test_fraction", 0.25)))
@@ -67,7 +71,7 @@ def train(cfg: dict | None = None, df: pd.DataFrame | None = None) -> dict:
     bot = te.loc[te["pred"] <= q1, "real"].mean()
 
     perm = permutation_importance(model, Xte, yte, n_repeats=10, random_state=0)
-    importances = {f: float(v) for f, v in zip(FEATURE_COLUMNS, perm.importances_mean)}
+    importances = {f: float(v) for f, v in zip(feat_cols, perm.importances_mean)}
 
     metrics = {
         "spearman": _spearman(pred, yte),
@@ -84,7 +88,7 @@ def train(cfg: dict | None = None, df: pd.DataFrame | None = None) -> dict:
     quantiles = np.percentile(final.predict(X), np.arange(0, 101)).tolist()
 
     bundle = {
-        "model": final, "features": FEATURE_COLUMNS, "pred_quantiles": quantiles,
+        "model": final, "features": feat_cols, "pred_quantiles": quantiles,
         "importances": importances, "metrics": metrics,
         "created_at": now_et().isoformat(timespec="seconds"),
         "date_from": str(df["date"].min()), "date_to": str(df["date"].max()),

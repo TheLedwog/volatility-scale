@@ -91,22 +91,47 @@ how today's news is likely to affect the NY session and returns a `chop_risk`
 (higher when news is high-impact but conflicting/uncertain), shown as a dashboard
 panel and folded into the rule-based score as an optional `news_risk` factor.
 
-To turn on the GPT read:
+### Your OpenAI key (read this)
 
-1. Settings → `providers` → set `openai_api_key` (and optionally `openai_model`,
-   default `gpt-4o-mini`). Keep `news.enabled` = `true`.
-2. Re-run a prediction. The dashboard "News & geopolitics" panel will show GPT's
-   read, and `news_risk` joins the factor breakdown.
+Provide the key the **secure way** — as an environment variable, not in the UI:
 
-Without a key you still see the headlines (just no GPT read, and the factor is
-skipped). Notes:
+```bash
+# a git-ignored .env file in the project root (loaded automatically)
+echo 'OPENAI_API_KEY=sk-...' > .env
+chmod 600 .env          # Linux/Pi: restrict to your user
+```
 
-- One GPT call per day, cached — re-running won't re-bill. GDELT is rate-limited,
-  so headlines are cached per day too.
-- This feeds the **rule-based** engine, not the trained model yet. Making news a
-  *model* feature needs a historical GPT-scored backfill (a cheap but separate
-  opt-in step, since it scores ~2y of past days).
-- `news.query` (Settings) controls what GDELT searches for.
+…or export `OPENAI_API_KEY` / set it in the systemd unit (`Environment=` /
+`EnvironmentFile=`). The key is read from the environment first and **never written
+to the database or shown in the UI**.
+
+You *can* instead paste it into Settings → `providers` → `openai_api_key`, but then
+it's stored in the local DB. The UI masks it (`********`) and never echoes it back,
+but the env-var route is preferred. Note the web app has no login and listens on
+your LAN — keep it on a trusted network (or bind to localhost and use an SSH tunnel).
+
+Then keep `news.enabled = true` and re-run a prediction: the "News & geopolitics"
+panel fills with GPT's read and `news_risk` joins the factor breakdown. Without a
+key you still get headlines (no GPT read; the factor is skipped).
+
+- One GPT call per day, cached — re-running won't re-bill. GDELT is rate-limited so
+  headlines are cached per day too. `news.query` controls the GDELT search.
+
+### Adding news into the *model* (optional backfill)
+
+The live news layer feeds the **rule-based** engine immediately. To let the
+**trained model** learn from news, score ~2 years of past days once and retrain:
+
+```bash
+python -m app.ml.backfill_news          # DRY RUN: prints a cost estimate, spends nothing
+python -m app.ml.backfill_news --yes    # actually run it (cached + resumable)
+```
+
+On `gpt-4o-mini` this is roughly **$0.15–0.25 one-time** for ~720 sessions, and it
+adds `news_*` features to the model, then retrains. It's safe by default (won't
+spend without `--yes`) and resumable (re-runs skip already-scored days). Takes
+~20–40 min due to polite GDELT throttling. As always, the model only auto-activates
+if it then beats the rules.
 
 ## Data sources
 

@@ -33,7 +33,31 @@ FEATURE_LABELS = {
     "opex": "OPEX", "quad_witching": "Quad witching",
     "day_before_holiday": "Day before holiday", "day_after_holiday": "Day after holiday",
     "month_end": "Month end", "quarter_end": "Quarter end", "early_close": "Early close",
+    "news_chop_risk": "News chop-risk", "news_impact": "News impact",
+    "news_relevance": "News relevance", "news_dir": "News direction",
 }
+
+# Optional news features, only present once the historical news backfill has run.
+NEWS_FEATURE_COLUMNS = ["news_chop_risk", "news_impact", "news_relevance", "news_dir"]
+
+
+def news_feature_dict(news: dict | None) -> dict:
+    """Map a news assessment to numeric model features (NaN if not GPT-scored)."""
+    if news and news.get("scored"):
+        def _num(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return np.nan
+
+        dir_map = {"risk_off": -1.0, "risk_on": 1.0}
+        return {
+            "news_chop_risk": _num(news.get("chop_risk")),
+            "news_impact": _num(news.get("expected_impact")),
+            "news_relevance": _num(news.get("relevance")),
+            "news_dir": dir_map.get(news.get("direction"), 0.0),
+        }
+    return {c: np.nan for c in NEWS_FEATURE_COLUMNS}
 
 
 def to_date_index(df: pd.DataFrame) -> pd.DataFrame:

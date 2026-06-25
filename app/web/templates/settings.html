@@ -8,6 +8,11 @@
     next prediction (schedule times apply on next app start). <code>weights</code> should sum to ~1.0.
     Move an event category between <code>veto_categories</code> and <code>warn_categories</code> to
     change how the gate treats it.</p>
+  <p class="muted small">🔒 Secrets (<code>openai_api_key</code>, <code>news_api_key</code>) are shown as
+    <code>********</code> and never displayed. Saving keeps the stored value unless you paste a new one.
+    <b>More secure:</b> instead of saving it here, set <code>OPENAI_API_KEY</code> as an environment
+    variable or in a git-ignored <code>.env</code> file (<code>chmod 600 .env</code>) — it's read from
+    there first and never touches the database.</p>
 
   <form method="post" action="/settings">
     {% for key, val in sections.items() %}

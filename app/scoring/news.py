@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
+from ..config import openai_api_key
 from ..db import get_conn
 from ..providers import get_llm_provider, get_news_provider
 from ..timeutils import now_et
@@ -60,7 +61,7 @@ def get_news_assessment(cfg: dict, d: date, use_cache: bool = True) -> dict | No
     if not cfg.get("news", {}).get("enabled", False):
         return None
     date_str = d.isoformat()
-    has_key = bool(cfg["providers"].get("openai_api_key", ""))
+    has_key = bool(openai_api_key(cfg))
 
     if use_cache:
         cached = _load(date_str)

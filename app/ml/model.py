@@ -8,7 +8,9 @@ import pandas as pd
 
 from ..config import get_config
 from ..db import DATA_DIR
-from .features import FEATURE_COLUMNS, FEATURE_LABELS, feature_row, to_date_index
+from .features import (
+    FEATURE_LABELS, NEWS_FEATURE_COLUMNS, feature_row, news_feature_dict, to_date_index,
+)
 
 
 class ModelScorer:
@@ -42,7 +44,7 @@ class ModelScorer:
         q = np.asarray(self.bundle["pred_quantiles"], dtype=float)
         return int(max(0, min(100, int(np.searchsorted(q, pred)))))
 
-    def score(self, cfg: dict, price, d: date) -> dict | None:
+    def score(self, cfg: dict, price, d: date, news: dict | None = None) -> dict | None:
         if not self.available():
             return None
         t = cfg["tickers"]
@@ -57,7 +59,12 @@ class ModelScorer:
         if row is None:
             return None
 
-        X = pd.DataFrame([{k: row.get(k, np.nan) for k in FEATURE_COLUMNS}])[FEATURE_COLUMNS]
+        feat_cols = self.bundle.get("features", list(row.keys()))
+        # Add live news features only if the trained model expects them.
+        if any(c in feat_cols for c in NEWS_FEATURE_COLUMNS):
+            row = {**row, **news_feature_dict(news)}
+
+        X = pd.DataFrame([{k: row.get(k, np.nan) for k in feat_cols}])[feat_cols]
         pred = float(self.bundle["model"].predict(X)[0])
         dq = self._dq(pred)
 

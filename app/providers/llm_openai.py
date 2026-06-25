@@ -35,8 +35,10 @@ def _clamp01(v):
 
 class OpenAILLMProvider(LLMProvider):
     def score_news(self, headlines: list[str], cfg: dict) -> dict:
+        from ..config import openai_api_key
+
         prov = cfg["providers"]
-        api_key = prov.get("openai_api_key", "")
+        api_key = openai_api_key(cfg)
         if not api_key or not headlines:
             return {"scored": False}
         try:

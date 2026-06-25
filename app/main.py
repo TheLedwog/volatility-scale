@@ -99,10 +99,24 @@ def run_train():
     return RedirectResponse(url="/history?training=1", status_code=303)
 
 
+# Secrets are never echoed back to the UI; they show as MASK and are only
+# overwritten when the user types a real new value.
+SECRET_FIELDS = ("openai_api_key", "news_api_key")
+MASK = "********"
+
+
 @app.get("/settings")
 def settings_get(request: Request, saved: str | None = None, error: str | None = None):
     cfg = get_config()
-    sections = {k: json.dumps(cfg[k], indent=2) for k in EDITABLE_SECTIONS}
+    sections = {}
+    for key in EDITABLE_SECTIONS:
+        data = cfg[key]
+        if key == "providers":
+            data = dict(data)
+            for sf in SECRET_FIELDS:
+                if data.get(sf):
+                    data[sf] = MASK
+        sections[key] = json.dumps(data, indent=2)
     return templates.TemplateResponse(
         request, "settings.html",
         {"sections": sections, "saved": saved, "error": error},
@@ -112,6 +126,7 @@ def settings_get(request: Request, saved: str | None = None, error: str | None =
 @app.post("/settings")
 async def settings_post(request: Request):
     form = await request.form()
+    current = get_config()
     for key in EDITABLE_SECTIONS:
         if key not in form:
             continue
@@ -119,6 +134,11 @@ async def settings_post(request: Request):
             value = json.loads(form[key])
         except json.JSONDecodeError as exc:
             return RedirectResponse(url=f"/settings?error={key}: {exc}", status_code=303)
+        if key == "providers" and isinstance(value, dict):
+            for sf in SECRET_FIELDS:
+                # keep the stored secret if the field was left masked/blank
+                if value.get(sf) in (MASK, None):
+                    value[sf] = current["providers"].get(sf, "")
         set_section(key, value)
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 

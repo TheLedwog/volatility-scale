@@ -90,7 +90,7 @@ def run_prediction(d: date | None = None) -> dict:
 
             scorer = ModelScorer(cfg)
             if scorer.available() and (mode == "model" or scorer.is_useful()):
-                f = scorer.score(cfg, price, d)
+                f = scorer.score(cfg, price, d, news=news_assessment)
                 if f is None:
                     model_note = "model present but insufficient live data; used rules"
             elif scorer.available():
