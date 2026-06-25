@@ -39,4 +39,6 @@ class NewsProvider(ABC):
 
 class LLMProvider(ABC):
     @abstractmethod
-    def score_headlines(self, headlines: list[str]) -> dict: ...
+    def score_news(self, headlines: list[str], cfg: dict) -> dict:
+        """Return {scored, relevance, expected_impact, direction, chop_risk, rationale}."""
+        ...

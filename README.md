@@ -84,13 +84,37 @@ that page.
 > earns it. Also, the bootstrap label uses **hourly** bars while the live labeler
 > uses **5-min** bars, so their Efficiency-Ratio values aren't on the same scale.
 
-## Data sources (Phase 1, all free)
+## News & geopolitics (Phase 4)
 
-- **Prices / VIX / futures:** yfinance.
+Free headlines from **GDELT** (no key) read by your **OpenAI/GPT** key. GPT judges
+how today's news is likely to affect the NY session and returns a `chop_risk`
+(higher when news is high-impact but conflicting/uncertain), shown as a dashboard
+panel and folded into the rule-based score as an optional `news_risk` factor.
+
+To turn on the GPT read:
+
+1. Settings → `providers` → set `openai_api_key` (and optionally `openai_model`,
+   default `gpt-4o-mini`). Keep `news.enabled` = `true`.
+2. Re-run a prediction. The dashboard "News & geopolitics" panel will show GPT's
+   read, and `news_risk` joins the factor breakdown.
+
+Without a key you still see the headlines (just no GPT read, and the factor is
+skipped). Notes:
+
+- One GPT call per day, cached — re-running won't re-bill. GDELT is rate-limited,
+  so headlines are cached per day too.
+- This feeds the **rule-based** engine, not the trained model yet. Making news a
+  *model* feature needs a historical GPT-scored backfill (a cheap but separate
+  opt-in step, since it scores ~2y of past days).
+- `news.query` (Settings) controls what GDELT searches for.
+
+## Data sources
+
+- **Prices / VIX / futures:** yfinance (free).
 - **Economic calendar:** ForexFactory's free weekly JSON feed (the same data you
   already use). Behind a `CalendarProvider` interface, so a paid feed is a drop-in.
-- **News / LLM:** interfaces are stubbed (Phase 4). Add your OpenAI key in Settings
-  when we wire up news scoring.
+- **News / geopolitics:** GDELT (free, no key), scored by your OpenAI/GPT key.
+  Behind `NewsProvider` / `LLMProvider` interfaces — both swappable.
 
 ## Choosing the port
 

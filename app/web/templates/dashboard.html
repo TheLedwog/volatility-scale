@@ -83,5 +83,28 @@
       {% else %}<p class="muted">No USD events found for today (or feed unavailable).</p>{% endif %}
     </div>
   </div>
+
+  {% if pred.features.news %}
+  {% set nw = pred.features.news %}
+  <div class="card">
+    <h2>News &amp; geopolitics{{ ' (GPT)' if nw.scored else '' }}</h2>
+    {% if nw.scored %}
+      <p>
+        <span class="badge badge-{{ 'avoid' if nw.direction == 'risk_off' else ('good' if nw.direction == 'risk_on' else 'mixed') }}">{{ nw.direction }}</span>
+        <span class="muted">impact {{ nw.expected_impact }} · news chop-risk
+          {% if nw.chop_risk is not none %}{{ (nw.chop_risk*100)|round|int }}%{% else %}—{% endif %}</span>
+      </p>
+      {% if nw.rationale %}<p class="muted">{{ nw.rationale }}</p>{% endif %}
+    {% elif nw.error %}
+      <p class="muted small">News unavailable: {{ nw.error }}</p>
+    {% else %}
+      <p class="muted small">Headlines fetched — add your OpenAI key in Settings to get the GPT read
+        and fold it into the score.</p>
+    {% endif %}
+    {% if nw.headlines %}
+      <ul class="news">{% for h in nw.headlines[:8] %}<li>{{ h }}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+  {% endif %}
 {% endif %}
 {% endblock %}

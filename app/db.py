@@ -44,6 +44,19 @@ CREATE TABLE IF NOT EXISTS model_versions (
     metrics_json TEXT,
     notes        TEXT
 );
+
+CREATE TABLE IF NOT EXISTS news_scores (
+    date            TEXT PRIMARY KEY,      -- YYYY-MM-DD (ET)
+    scored          INTEGER,               -- 1 if GPT scored it
+    relevance       REAL,
+    expected_impact REAL,
+    direction       TEXT,                  -- risk_on | risk_off | uncertain
+    chop_risk       REAL,
+    rationale       TEXT,
+    source          TEXT,
+    headlines_json  TEXT,
+    created_at      TEXT
+);
 """
 
 

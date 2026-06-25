@@ -71,6 +71,16 @@ def run_prediction(d: date | None = None) -> dict:
 
     gate = decide_gate(events, cfg, d)
 
+    # News / geopolitics (GDELT headlines + GPT read), if enabled. One call/day, cached.
+    news_assessment = None
+    if cfg.get("news", {}).get("enabled", False):
+        try:
+            from .news import get_news_assessment
+
+            news_assessment = get_news_assessment(cfg, d)
+        except Exception as exc:  # noqa: BLE001
+            news_assessment = {"error": str(exc), "scored": False, "headlines": []}
+
     # Soft score: trained model when available/selected, else rule-based factors.
     mode = cfg.get("scoring", {}).get("mode", "auto")
     f, model_note = None, None
@@ -91,7 +101,7 @@ def run_prediction(d: date | None = None) -> dict:
             model_note = f"model error ({exc}); used rules"
             f = None
     if f is None:
-        ctx = build_context(cfg, price, events, d)
+        ctx = build_context(cfg, price, events, d, news=news_assessment)
         f = compute_factors(cfg, ctx)
 
     tier = gate["tier"]
@@ -109,6 +119,7 @@ def run_prediction(d: date | None = None) -> dict:
         "atr_pct": f["atr_pct"],
         "events": _serializable_events(gate["events"]),
         "calendar_error": calendar_error,
+        "news": news_assessment,
     }
 
     result = {

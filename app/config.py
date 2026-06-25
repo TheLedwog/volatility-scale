@@ -25,6 +25,7 @@ DEFAULTS: dict = {
         "vix_regime": 0.20,
         "overnight_range": 0.15,
         "structural_day": 0.15,
+        "news_risk": 0.25,   # optional; only counts when news is GPT-scored
     },
     "thresholds": {
         "good": 65,                 # direction_quality >= good  -> "good to trade"
@@ -62,6 +63,14 @@ DEFAULTS: dict = {
         "openai_api_key": "",
         "openai_model": "gpt-4o-mini",
         "news_api_key": "",
+    },
+    "news": {
+        "enabled": True,            # fetch headlines; GPT read needs an OpenAI key
+        "provider": "gdelt",
+        "max_headlines": 25,
+        "query": ('(stocks OR "stock market" OR "Federal Reserve" OR inflation OR '
+                  'tariffs OR war OR sanctions OR recession OR "interest rate") '
+                  'sourcelang:eng'),
     },
 }
 

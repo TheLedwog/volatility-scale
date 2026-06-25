@@ -21,7 +21,12 @@ FACTOR_LABELS = {
     "vix_regime": "VIX regime",
     "overnight_range": "Overnight efficiency",
     "structural_day": "Structural day",
+    "news_risk": "News & geopolitics",
 }
+
+# Factors dropped from the blend (not counted) when unavailable, rather than
+# treated as neutral 0.5.
+OPTIONAL_FACTORS = {"news_risk"}
 
 
 def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -43,13 +48,13 @@ def _efficiency_ratio(series: pd.Series):
 # Context: gather the raw inputs the factors need. Every fetch is guarded so a
 # missing data source degrades that factor to neutral instead of crashing.
 # --------------------------------------------------------------------------- #
-def build_context(cfg: dict, price, events: list[dict], d: date) -> dict:
+def build_context(cfg: dict, price, events: list[dict], d: date, news: dict | None = None) -> dict:
     tickers = cfg["tickers"]
     sess = cfg["session"]
     ctx: dict = {
         "prior_er": None, "atr_pct": None, "vix": None, "vix3m": None,
         "overnight_er": None, "event_count": 0, "structural": {},
-        "structural_count": 0,
+        "structural_count": 0, "news": news,
     }
 
     # Prior-day efficiency (daily proxy) + ATR%
@@ -169,12 +174,22 @@ def _f_structural(ctx):
     return _clamp(0.2 + 0.2 * n, 0.0, 0.95), True, detail
 
 
+def _f_news(ctx):
+    n = ctx.get("news")
+    if not n or not n.get("scored") or n.get("chop_risk") is None:
+        return 0.5, False, "news not scored (add OpenAI key in Settings)"
+    rationale = (n.get("rationale") or "")[:80]
+    detail = f"{n.get('direction', '?')}, impact {n.get('expected_impact')}: {rationale}"
+    return _clamp(float(n["chop_risk"])), True, detail
+
+
 _FACTOR_FUNCS = {
     "prior_day_efficiency": _f_prior,
     "event_noise": _f_event_noise,
     "vix_regime": _f_vix,
     "overnight_range": _f_overnight,
     "structural_day": _f_structural,
+    "news_risk": _f_news,
 }
 
 
@@ -184,6 +199,14 @@ def compute_factors(cfg: dict, ctx: dict) -> dict:
     for name, func in _FACTOR_FUNCS.items():
         w = float(weights.get(name, 0.0))
         risk, available, detail = func(ctx)
+        # Optional factors (e.g. news) are dropped from the blend when unavailable.
+        if name in OPTIONAL_FACTORS and not available:
+            rows.append({
+                "name": name, "label": FACTOR_LABELS[name], "risk": 0.0,
+                "weight": round(w, 3), "contribution": 0.0,
+                "available": False, "detail": detail,
+            })
+            continue
         contribution = w * risk
         weighted += contribution
         total_w += w

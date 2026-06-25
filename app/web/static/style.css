@@ -91,6 +91,9 @@ table { width: 100%; border-collapse: collapse; }
 .stat span { display: block; font-size: 12px; margin-bottom: 4px; }
 .stat b { font-size: 20px; }
 
+.news { margin: 10px 0 0; padding-left: 18px; }
+.news li { margin: 4px 0; color: var(--muted); font-size: 13px; }
+
 .seclabel { display: block; margin: 16px 0 5px; font-weight: 600; color: var(--accent); }
 textarea {
   width: 100%; background: #0c1117; color: var(--text); border: 1px solid var(--line);

@@ -1,38 +1,50 @@
-"""OpenAI/GPT headline-scoring provider (interface ready; used from Phase 4).
+"""OpenAI/GPT news scorer — reads today's headlines and judges chop risk.
 
-It reads headlines and returns a structured market-impact judgement. Kept behind
-the LLMProvider interface so the model/provider can be swapped later.
+Grounded in the user's strategy: they trade the NY session of the NASDAQ/S&P 500,
+want big *directional* moves, and lose on erratic, headline-driven whipsaw (chop).
+Behind the LLMProvider interface so the model/provider can be swapped later.
 """
 from __future__ import annotations
 
 import json
 
-from ..config import get_config
 from .base import LLMProvider
 
 _SYSTEM = (
-    "You are a markets analyst. Given today's headlines, judge their impact on the "
-    "US equity index NY session (S&P 500 / NASDAQ). Reply ONLY with JSON: "
-    '{"relevance": 0..1, "direction": "risk_on|risk_off|uncertain", '
-    '"expected_impact": 0..1, "rationale": "one sentence"}.'
+    "You are a markets analyst for an intraday trader of the NEW YORK session of the "
+    "NASDAQ-100 and S&P 500. The trader needs big, clean DIRECTIONAL moves and loses "
+    "money on erratic, headline-driven, whipsaw 'chop' days. Given today's news "
+    "headlines, judge how today's NY session is likely to behave. Reply with ONLY a "
+    "JSON object: {"
+    '"relevance": 0..1 (how market-relevant the news is), '
+    '"expected_impact": 0..1 (how much it could move US equities), '
+    '"direction": "risk_on" | "risk_off" | "uncertain", '
+    '"chop_risk": 0..1 (probability the session is erratic/whippy and hard to trade; '
+    "raise it when news is high-impact but conflicting/uncertain, lower it when there "
+    'is a single clear directional catalyst), '
+    '"rationale": "one short sentence"}.'
 )
 
-_NEUTRAL = {"relevance": 0.0, "direction": "uncertain",
-            "expected_impact": 0.0, "rationale": "no LLM key configured"}
+
+def _clamp01(v):
+    try:
+        return max(0.0, min(1.0, float(v)))
+    except (TypeError, ValueError):
+        return None
 
 
 class OpenAILLMProvider(LLMProvider):
-    def score_headlines(self, headlines: list[str]) -> dict:
-        cfg = get_config()["providers"]
-        api_key = cfg.get("openai_api_key", "")
+    def score_news(self, headlines: list[str], cfg: dict) -> dict:
+        prov = cfg["providers"]
+        api_key = prov.get("openai_api_key", "")
         if not api_key or not headlines:
-            return dict(_NEUTRAL)
+            return {"scored": False}
         try:
             from openai import OpenAI
 
             client = OpenAI(api_key=api_key)
             resp = client.chat.completions.create(
-                model=cfg.get("openai_model", "gpt-4o-mini"),
+                model=prov.get("openai_model", "gpt-4o-mini"),
                 messages=[
                     {"role": "system", "content": _SYSTEM},
                     {"role": "user", "content": "\n".join(f"- {h}" for h in headlines)},
@@ -40,6 +52,14 @@ class OpenAILLMProvider(LLMProvider):
                 temperature=0,
                 response_format={"type": "json_object"},
             )
-            return json.loads(resp.choices[0].message.content)
+            data = json.loads(resp.choices[0].message.content)
+            return {
+                "scored": True,
+                "relevance": _clamp01(data.get("relevance")),
+                "expected_impact": _clamp01(data.get("expected_impact")),
+                "direction": data.get("direction", "uncertain"),
+                "chop_risk": _clamp01(data.get("chop_risk")),
+                "rationale": str(data.get("rationale", ""))[:300],
+            }
         except Exception as exc:  # noqa: BLE001 - degrade gracefully
-            return {**_NEUTRAL, "rationale": f"llm error: {exc}"}
+            return {"scored": False, "error": f"llm error: {exc}"}
