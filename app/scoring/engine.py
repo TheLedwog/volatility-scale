@@ -70,8 +70,29 @@ def run_prediction(d: date | None = None) -> dict:
         events, calendar_error = [], str(exc)
 
     gate = decide_gate(events, cfg, d)
-    ctx = build_context(cfg, price, events, d)
-    f = compute_factors(cfg, ctx)
+
+    # Soft score: trained model when available/selected, else rule-based factors.
+    mode = cfg.get("scoring", {}).get("mode", "auto")
+    f, model_note = None, None
+    if mode in ("auto", "model"):
+        try:
+            from ..ml.model import ModelScorer
+
+            scorer = ModelScorer(cfg)
+            if scorer.available() and (mode == "model" or scorer.is_useful()):
+                f = scorer.score(cfg, price, d)
+                if f is None:
+                    model_note = "model present but insufficient live data; used rules"
+            elif scorer.available():
+                model_note = "model trained but not yet beating baseline; using rules"
+            elif mode == "model":
+                model_note = "model mode set but no model file; used rules"
+        except Exception as exc:  # noqa: BLE001 - any ML failure -> rules
+            model_note = f"model error ({exc}); used rules"
+            f = None
+    if f is None:
+        ctx = build_context(cfg, price, events, d)
+        f = compute_factors(cfg, ctx)
 
     tier = gate["tier"]
     dq = f["direction_quality"]
@@ -79,7 +100,10 @@ def run_prediction(d: date | None = None) -> dict:
 
     features = {
         "factors": f["factors"],
-        "context": ctx,
+        "breakdown_kind": f.get("breakdown_kind", "rules"),
+        "predicted_er": f.get("predicted_er"),
+        "model_version": f.get("model_version"),
+        "model_note": model_note,
         "gate_tier": tier,
         "dead_day": f["dead_day"],
         "atr_pct": f["atr_pct"],

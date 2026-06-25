@@ -38,13 +38,15 @@
 
     {% if pred.features.dead_day %}<p class="muted">💤 Low expected range — possible dead day.</p>{% endif %}
     {% if pred.features.calendar_error %}<p class="muted">⚠ Calendar feed unavailable: {{ pred.features.calendar_error }}</p>{% endif %}
+    {% if pred.features.model_note %}<p class="muted small">ℹ {{ pred.features.model_note }}</p>{% endif %}
+    <p class="muted small">Engine: {{ 'trained model' if pred.features.breakdown_kind == 'model' else 'rule-based' }}</p>
 
     <form method="post" action="/run-predict"><button class="btn">↻ Recompute</button></form>
   </div>
 
   <div class="grid">
     <div class="card">
-      <h2>Why — factor breakdown</h2>
+      <h2>Why — {{ 'top model features' if pred.features.breakdown_kind == 'model' else 'factor breakdown' }}</h2>
       {% if pred.features.factors %}
       <table class="factors">
         {% for f in pred.features.factors %}
@@ -56,8 +58,13 @@
         <tr class="detail"><td colspan="3" class="muted small">weight {{ f.weight }} · {{ f.detail }}</td></tr>
         {% endfor %}
       </table>
+      {% if pred.features.breakdown_kind == 'model' %}
+      <p class="muted small">Trained model · bars = feature importance, with today's value.
+        Predicted directionality percentile {{ pred.direction_quality }}/100{% if pred.features.predicted_er is not none %} (raw ER {{ pred.features.predicted_er }}){% endif %}.</p>
+      {% else %}
       <p class="muted small">Bars = chop risk per factor (higher = choppier).
         {% if pred.chop_risk is not none %}Blended chop risk {{ (pred.chop_risk*100)|round|int }}%.{% endif %}</p>
+      {% endif %}
       {% else %}<p class="muted">No factors (market closed).</p>{% endif %}
     </div>
 

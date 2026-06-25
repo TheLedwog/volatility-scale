@@ -211,4 +211,5 @@ def compute_factors(cfg: dict, ctx: dict) -> dict:
         "direction_quality": direction_quality,
         "dead_day": dead_day,
         "atr_pct": ctx["atr_pct"],
+        "breakdown_kind": "rules",
     }

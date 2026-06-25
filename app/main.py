@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
@@ -13,7 +14,7 @@ from .config import EDITABLE_SECTIONS, get_config, reset, set_section
 from .db import init_db
 from .labeling.efficiency import run_labeling
 from .scoring.engine import run_prediction
-from .store import accuracy_summary, latest_prediction, recent_history
+from .store import accuracy_summary, latest_model, latest_prediction, recent_history
 
 BASE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE / "web" / "templates"))
@@ -70,11 +71,32 @@ def run_label():
 
 
 @app.get("/history")
-def history(request: Request):
+def history(request: Request, training: str | None = None):
     return templates.TemplateResponse(
         request, "history.html",
-        {"rows": recent_history(60), "acc": accuracy_summary()},
+        {"rows": recent_history(60), "acc": accuracy_summary(),
+         "model": latest_model(), "training": training},
     )
+
+
+_train_lock = threading.Lock()
+
+
+@app.post("/run-train")
+def run_train():
+    def _job():
+        if not _train_lock.acquire(blocking=False):
+            return
+        try:
+            from .ml.build import run as build_run
+            build_run()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[train] failed: {exc}")
+        finally:
+            _train_lock.release()
+
+    threading.Thread(target=_job, daemon=True).start()
+    return RedirectResponse(url="/history?training=1", status_code=303)
 
 
 @app.get("/settings")

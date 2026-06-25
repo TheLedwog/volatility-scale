@@ -41,6 +41,20 @@ DEFAULTS: dict = {
         "min_impact": "High",       # only High-impact events trip the gate
         "session_buffer_min": 15,   # widen veto window this many minutes before open
     },
+    # Soft-score engine: "auto" uses the trained model if data/model.joblib exists,
+    # else falls back to the rule-based factors. "rules" / "model" force one.
+    "scoring": {"mode": "auto"},
+    "ml": {
+        "lookback_days_daily": 800,
+        "lookback_days_hourly": 730,   # yfinance hourly history cap
+        "min_session_bars": 4,         # min hourly bars to label a session
+        "model_file": "model.joblib",
+        "test_fraction": 0.25,         # chronological hold-out for metrics
+        # In "auto" mode the model is only used if it clears these on its hold-out,
+        # i.e. it must actually beat near-random before replacing the rules.
+        "min_spearman": 0.05,
+        "min_lift": 0.02,
+    },
     "schedule": {"enabled": True, "predict_time": "08:45", "label_time": "16:20"},
     "providers": {
         "calendar": "forexfactory",

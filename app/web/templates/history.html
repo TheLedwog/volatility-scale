@@ -19,6 +19,32 @@
 </div>
 
 <div class="card">
+  <div class="verdict-row">
+    <h2>Trained model</h2>
+    <form method="post" action="/run-train"><button class="btn btn-secondary">Retrain model</button></form>
+  </div>
+  {% if training %}<p class="alert alert-ok">Training started in the background — it downloads ~2y of data and trains, then refresh this page in a minute.</p>{% endif %}
+  {% if model %}
+  <div class="acc">
+    <div class="stat"><span class="muted">Trained</span><b>{{ model.created_at[:16] }}</b></div>
+    <div class="stat"><span class="muted">Sessions</span><b>{{ model.n_samples }}</b></div>
+    <div class="stat"><span class="muted">Spearman (rank)</span>
+      <b>{{ model.metrics.spearman if model.metrics.spearman is not none else '—' }}</b></div>
+    <div class="stat"><span class="muted">Hold-out ER: top vs bottom third</span>
+      <b>{{ model.metrics.lift_top_third_er if model.metrics.lift_top_third_er is not none else '—' }}
+         / {{ model.metrics.lift_bottom_third_er if model.metrics.lift_bottom_third_er is not none else '—' }}</b></div>
+  </div>
+  <p class="muted small">Data {{ model.date_from }} .. {{ model.date_to }}. The model has signal when
+    top-third ER is clearly above bottom-third, and beats the prior-day-only baseline (Spearman
+    {{ model.metrics.baseline_spearman_prior_er if model.metrics.baseline_spearman_prior_er is not none else '—' }}).
+    Set <code>scoring.mode</code> to <code>auto</code> (default) to use it.</p>
+  {% else %}
+  <p class="muted">No model trained yet — click <b>Retrain model</b>, or run
+    <code>python -m app.ml.build</code>. Until then the dashboard uses the rule-based engine.</p>
+  {% endif %}
+</div>
+
+<div class="card">
   <table class="hist">
     <tr><th>Date</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Realized ER</th><th>Outcome</th><th>Range %</th></tr>
     {% for r in rows %}

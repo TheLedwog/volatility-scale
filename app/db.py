@@ -34,6 +34,16 @@ CREATE TABLE IF NOT EXISTS outcomes (
     bars           INTEGER,
     computed_at    TEXT
 );
+
+CREATE TABLE IF NOT EXISTS model_versions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at   TEXT NOT NULL,
+    n_samples    INTEGER,
+    date_from    TEXT,
+    date_to      TEXT,
+    metrics_json TEXT,
+    notes        TEXT
+);
 """
 
 

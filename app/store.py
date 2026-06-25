@@ -59,6 +59,25 @@ def recent_history(limit: int = 40) -> list[dict]:
         conn.close()
 
 
+def latest_model() -> dict | None:
+    init_db()
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM model_versions ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["metrics"] = json.loads(d.get("metrics_json") or "{}")
+        except json.JSONDecodeError:
+            d["metrics"] = {}
+        return d
+    finally:
+        conn.close()
+
+
 def accuracy_summary() -> dict:
     """Simple Phase-1 separation metrics (full ML calibration comes in Phase 3)."""
     cfg = get_config()

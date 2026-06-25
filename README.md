@@ -55,6 +55,35 @@ Settings (default 08:45 ET predict, 16:20 ET label) while `run.py` is running.
 On a Raspberry Pi you can instead disable the scheduler and use cron / systemd
 timers to call the two job commands above.
 
+## Training the model (Phase 3)
+
+The soft score can come from either the transparent **rule-based** engine or a
+**trained model** (scikit-learn `HistGradientBoostingRegressor`). Build/refresh it:
+
+```bash
+python -m app.ml.build        # download ~2y of data, build dataset, train
+# or the steps separately:
+python -m app.ml.dataset      # -> data/training.csv
+python -m app.ml.train        # -> data/model.joblib + metrics
+```
+
+…or click **Retrain model** on the History page. Metrics (rank correlation, and
+realized ER of the model's top vs bottom third on a chronological hold-out) show on
+that page.
+
+`scoring.mode` (Settings) controls which engine runs:
+
+- `auto` (default) — use the model **only if it beats near-random** on its hold-out
+  (`ml.min_spearman` / `ml.min_lift`); otherwise fall back to the rules.
+- `rules` — always the rule-based engine.
+- `model` — always the model (even if weak).
+
+> **Honest note:** with only price/vol/seasonal features and ~2 years of data, the
+> bootstrap model currently has little edge over the rules — so `auto` keeps using
+> the rules until a retrain (more data, plus the Phase 4 calendar/news features)
+> earns it. Also, the bootstrap label uses **hourly** bars while the live labeler
+> uses **5-min** bars, so their Efficiency-Ratio values aren't on the same scale.
+
 ## Data sources (Phase 1, all free)
 
 - **Prices / VIX / futures:** yfinance.
