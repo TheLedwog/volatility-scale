@@ -1,16 +1,23 @@
 """FastAPI app: dashboard, history, settings + run endpoints."""
 from __future__ import annotations
 
+import html
 import json
 import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .config import EDITABLE_SECTIONS, get_config, reset, set_section
+from .config import (
+    get_config,
+    openai_api_key as resolve_openai_key,
+    openai_key_status,
+    reset,
+    set_section,
+)
 from .db import init_db
 from .labeling.efficiency import run_labeling
 from .scoring.engine import run_prediction
@@ -99,48 +106,142 @@ def run_train():
     return RedirectResponse(url="/history?training=1", status_code=303)
 
 
-# Secrets are never echoed back to the UI; they show as MASK and are only
-# overwritten when the user types a real new value.
-SECRET_FIELDS = ("openai_api_key", "news_api_key")
-MASK = "********"
+# The "Advanced" card edits these structural sections as raw JSON. Everything
+# else has friendly form controls. No section is edited by both mechanisms, so
+# saves never clobber each other.
+ADVANCED_SECTIONS = ("session", "tickers", "gate", "ml")
+OPENAI_MODELS = ("gpt-4o-mini", "gpt-4o")
+SCORING_MODES = ("auto", "rules", "model")
 
 
 @app.get("/settings")
 def settings_get(request: Request, saved: str | None = None, error: str | None = None):
     cfg = get_config()
-    sections = {}
-    for key in EDITABLE_SECTIONS:
-        data = cfg[key]
-        if key == "providers":
-            data = dict(data)
-            for sf in SECRET_FIELDS:
-                if data.get(sf):
-                    data[sf] = MASK
-        sections[key] = json.dumps(data, indent=2)
+    advanced = {k: json.dumps(cfg[k], indent=2) for k in ADVANCED_SECTIONS}
     return templates.TemplateResponse(
         request, "settings.html",
-        {"sections": sections, "saved": saved, "error": error},
+        {
+            "cfg": cfg,
+            "key_status": openai_key_status(cfg),
+            "advanced": advanced,
+            "models": OPENAI_MODELS,
+            "modes": SCORING_MODES,
+            "saved": saved,
+            "error": error,
+        },
     )
+
+
+def _num(form, name, cast, default):
+    raw = form.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return cast(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 @app.post("/settings")
 async def settings_post(request: Request):
+    """Save the friendly form. Each section is merged onto current config so
+    fields not shown here (e.g. provider keys, news provider) are preserved."""
     form = await request.form()
-    current = get_config()
-    for key in EDITABLE_SECTIONS:
+    cfg = get_config()
+
+    set_section("scoring", {**cfg["scoring"],
+                            "mode": form.get("scoring_mode", cfg["scoring"]["mode"])})
+
+    news = {**cfg["news"], "enabled": "news_enabled" in form}
+    news["max_headlines"] = _num(form, "news_max_headlines", int, news.get("max_headlines"))
+    if form.get("news_query") is not None:
+        news["query"] = form["news_query"]
+    set_section("news", news)
+
+    prov = {**cfg["providers"]}
+    if form.get("openai_model"):
+        prov["openai_model"] = form["openai_model"]
+    set_section("providers", prov)
+
+    thr = {**cfg["thresholds"]}
+    thr["good"] = _num(form, "thr_good", int, thr.get("good"))
+    thr["caution"] = _num(form, "thr_caution", int, thr.get("caution"))
+    thr["dead_day_range_pct"] = _num(form, "thr_dead", float, thr.get("dead_day_range_pct"))
+    thr["label_directional_er"] = _num(form, "thr_dir_er", float, thr.get("label_directional_er"))
+    thr["label_choppy_er"] = _num(form, "thr_chop_er", float, thr.get("label_choppy_er"))
+    set_section("thresholds", thr)
+
+    sch = {**cfg["schedule"], "enabled": "sch_enabled" in form}
+    if form.get("sch_predict_time"):
+        sch["predict_time"] = form["sch_predict_time"]
+    if form.get("sch_label_time"):
+        sch["label_time"] = form["sch_label_time"]
+    set_section("schedule", sch)
+
+    w = {**cfg["weights"]}
+    for name in w:
+        w[name] = _num(form, "w_" + name, float, w[name])
+    set_section("weights", w)
+
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
+
+
+@app.post("/settings/advanced")
+async def settings_advanced(request: Request):
+    form = await request.form()
+    for key in ADVANCED_SECTIONS:
         if key not in form:
             continue
         try:
             value = json.loads(form[key])
         except json.JSONDecodeError as exc:
             return RedirectResponse(url=f"/settings?error={key}: {exc}", status_code=303)
-        if key == "providers" and isinstance(value, dict):
-            for sf in SECRET_FIELDS:
-                # keep the stored secret if the field was left masked/blank
-                if value.get(sf) in (MASK, None):
-                    value[sf] = current["providers"].get(sf, "")
         set_section(key, value)
-    return RedirectResponse(url="/settings?saved=1", status_code=303)
+    return RedirectResponse(url="/settings?saved=adv", status_code=303)
+
+
+@app.post("/settings/key")
+async def settings_key(openai_api_key: str = Form("")):
+    key = openai_api_key.strip()
+    if not key:
+        return RedirectResponse(url="/settings?error=No+key+entered.", status_code=303)
+    cfg = get_config()
+    set_section("providers", {**cfg["providers"], "openai_api_key": key})
+    return RedirectResponse(url="/settings?saved=key", status_code=303)
+
+
+@app.post("/settings/key/remove")
+def settings_key_remove():
+    cfg = get_config()
+    set_section("providers", {**cfg["providers"], "openai_api_key": ""})
+    return RedirectResponse(url="/settings?saved=keyremoved", status_code=303)
+
+
+def _test_openai_key(key: str) -> tuple[bool, str]:
+    """A no-cost auth check: list models. Returns (ok, message)."""
+    try:
+        from openai import OpenAI
+
+        OpenAI(api_key=key, timeout=12.0, max_retries=0).models.list()
+        return True, "Key works - OpenAI authenticated."
+    except Exception as exc:  # noqa: BLE001
+        msg = " ".join(str(exc).split())[:200]
+        return False, f"Key failed: {msg}"
+
+
+@app.post("/settings/test-key")
+async def settings_test_key(openai_api_key: str = Form("")):
+    cfg = get_config()
+    key = openai_api_key.strip()
+    if not key:  # nothing typed -> test whatever key is actually active
+        key = resolve_openai_key(cfg)
+    if not key:
+        body = '<p class="alert alert-warn small">No key to test — paste one above or set OPENAI_API_KEY.</p>'
+        return HTMLResponse(body)
+    ok, msg = _test_openai_key(key)
+    cls = "alert-ok" if ok else "alert-veto"
+    icon = "&#10003;" if ok else "&#10007;"
+    return HTMLResponse(f'<p class="alert {cls} small">{icon} {html.escape(msg)}</p>')
 
 
 @app.post("/settings/reset")

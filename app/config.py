@@ -138,3 +138,21 @@ def openai_api_key(cfg: dict | None = None) -> str:
     """
     cfg = cfg or get_config()
     return os.environ.get("OPENAI_API_KEY") or cfg.get("providers", {}).get("openai_api_key", "") or ""
+
+
+def openai_key_status(cfg: dict | None = None) -> dict:
+    """Where the active OpenAI key comes from, for the Settings UI.
+
+    `source` is "environment" (the env var, which wins), "stored" (saved in the
+    DB), or "none". `active` is True if any key is resolvable.
+    """
+    cfg = cfg or get_config()
+    env_present = bool(os.environ.get("OPENAI_API_KEY"))
+    stored_present = bool(cfg.get("providers", {}).get("openai_api_key"))
+    source = "environment" if env_present else "stored" if stored_present else "none"
+    return {
+        "env_present": env_present,
+        "stored_present": stored_present,
+        "source": source,
+        "active": env_present or stored_present,
+    }

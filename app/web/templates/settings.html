@@ -1,30 +1,187 @@
 {% extends "base.html" %}
 {% block content %}
+
+{% if saved == 'reset' %}<p class="alert alert-ok">Reset to defaults.</p>
+{% elif saved == 'key' %}<p class="alert alert-ok">API key saved.</p>
+{% elif saved == 'keyremoved' %}<p class="alert alert-ok">Stored key removed.</p>
+{% elif saved == 'adv' %}<p class="alert alert-ok">Advanced settings saved.</p>
+{% elif saved %}<p class="alert alert-ok">Saved.</p>{% endif %}
+{% if error %}<p class="alert alert-veto">Error — {{ error }}</p>{% endif %}
+
+<!-- ───────────────────────── OpenAI API key ───────────────────────── -->
 <div class="card">
   <h1>Settings</h1>
-  {% if saved %}<p class="alert alert-ok">Saved.</p>{% endif %}
-  {% if error %}<p class="alert alert-veto">Error — {{ error }}</p>{% endif %}
-  <p class="muted small">Edit each section as JSON. Stored in the database; changes apply on the
-    next prediction (schedule times apply on next app start). <code>weights</code> should sum to ~1.0.
-    Move an event category between <code>veto_categories</code> and <code>warn_categories</code> to
-    change how the gate treats it.</p>
-  <p class="muted small">🔒 Secrets (<code>openai_api_key</code>, <code>news_api_key</code>) are shown as
-    <code>********</code> and never displayed. Saving keeps the stored value unless you paste a new one.
-    <b>More secure:</b> instead of saving it here, set <code>OPENAI_API_KEY</code> as an environment
-    variable or in a git-ignored <code>.env</code> file (<code>chmod 600 .env</code>) — it's read from
-    there first and never touches the database.</p>
+  <div class="keypanel">
+    <h2>🔑 OpenAI API key</h2>
 
-  <form method="post" action="/settings">
-    {% for key, val in sections.items() %}
-      <label class="seclabel">{{ key }}</label>
-      <textarea name="{{ key }}" rows="{{ val.split('\n')|length + 1 }}" spellcheck="false">{{ val }}</textarea>
-    {% endfor %}
-    <div class="btnrow"><button class="btn" type="submit">Save settings</button></div>
-  </form>
+    {% if key_status.env_present %}
+      <p class="keystatus ok">✓ Using the key from the <code>OPENAI_API_KEY</code> environment variable.
+        This <b>takes precedence</b>, so a key saved below is ignored until you unset it.</p>
+    {% elif key_status.stored_present %}
+      <p class="keystatus ok">✓ A key is stored in the app and in use.</p>
+    {% else %}
+      <p class="keystatus bad">✗ No key set — GPT news scoring is off. Add one below to turn it on.</p>
+    {% endif %}
 
+    <form method="post" action="/settings/key" class="keyform" autocomplete="off">
+      <input type="password" name="openai_api_key" autocomplete="off" spellcheck="false"
+             placeholder="{{ 'paste a new key to replace the stored one' if key_status.stored_present else 'sk-…' }}">
+      <button class="btn" type="submit">Save key</button>
+      <button class="btn btn-secondary" type="button"
+              hx-post="/settings/test-key"
+              hx-include="[name='openai_api_key']"
+              hx-target="#key-test-result" hx-swap="innerHTML">Test key</button>
+    </form>
+    <div id="key-test-result"></div>
+
+    {% if key_status.stored_present %}
+    <form method="post" action="/settings/key/remove"
+          onsubmit="return confirm('Remove the key stored in the app?')">
+      <button class="btn btn-secondary" type="submit">Remove stored key</button>
+    </form>
+    {% endif %}
+
+    <p class="muted small">🔒 The key is never shown back here. <b>Most secure option:</b> instead of
+      saving it in the app, set <code>OPENAI_API_KEY</code> as an environment variable or in a
+      git-ignored <code>.env</code> file (<code>chmod 600 .env</code>) — then it never touches the
+      database. Don't expose this app to the open internet without a login in front of it.</p>
+  </div>
+</div>
+
+<!-- ───────────────────────── Common settings ───────────────────────── -->
+<form method="post" action="/settings">
+  <div class="card">
+    <h2>Scoring &amp; news</h2>
+
+    <div class="field">
+      <label>Scoring engine</label>
+      <div class="radios">
+        {% for m in modes %}
+        <label class="radio"><input type="radio" name="scoring_mode" value="{{ m }}"
+          {% if m == cfg.scoring.mode %}checked{% endif %}> {{ m }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    <p class="muted small">“auto” uses the trained model only if it beats the rules on its hold-out,
+      otherwise the rule-based factors. “rules”/“model” force one.</p>
+
+    <div class="field">
+      <label class="check"><input type="checkbox" name="news_enabled"
+        {% if cfg.news.enabled %}checked{% endif %}> Enable news / GPT scoring</label>
+    </div>
+    <div class="field">
+      <label>OpenAI model</label>
+      <select name="openai_model">
+        {% for m in models %}
+        <option value="{{ m }}" {% if m == cfg.providers.openai_model %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Max headlines</label>
+      <input type="number" name="news_max_headlines" min="1" max="100" value="{{ cfg.news.max_headlines }}">
+    </div>
+    <div class="field col">
+      <label>News query (GDELT)</label>
+      <textarea name="news_query" rows="3" spellcheck="false">{{ cfg.news.query }}</textarea>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Thresholds</h2>
+    <div class="field">
+      <label>Good to trade ≥</label>
+      <input type="number" name="thr_good" min="0" max="100" value="{{ cfg.thresholds.good }}">
+      <span class="muted small">direction-quality score (0–100)</span>
+    </div>
+    <div class="field">
+      <label>Choppy / avoid &lt;</label>
+      <input type="number" name="thr_caution" min="0" max="100" value="{{ cfg.thresholds.caution }}">
+    </div>
+    <div class="field">
+      <label>Dead-day ATR%</label>
+      <input type="number" name="thr_dead" step="0.01" value="{{ cfg.thresholds.dead_day_range_pct }}">
+      <span class="muted small">below this ATR% → low-opportunity flag</span>
+    </div>
+    <div class="field">
+      <label>Label: directional ER</label>
+      <input type="number" name="thr_dir_er" step="0.01" value="{{ cfg.thresholds.label_directional_er }}">
+    </div>
+    <div class="field">
+      <label>Label: choppy ER</label>
+      <input type="number" name="thr_chop_er" step="0.01" value="{{ cfg.thresholds.label_choppy_er }}">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Schedule</h2>
+    <div class="field">
+      <label class="check"><input type="checkbox" name="sch_enabled"
+        {% if cfg.schedule.enabled %}checked{% endif %}> Run scheduled jobs</label>
+    </div>
+    <div class="field">
+      <label>Pre-open predict</label>
+      <input type="time" name="sch_predict_time" value="{{ cfg.schedule.predict_time }}">
+    </div>
+    <div class="field">
+      <label>Post-close label</label>
+      <input type="time" name="sch_label_time" value="{{ cfg.schedule.label_time }}">
+    </div>
+    <p class="muted small">Times are <code>{{ cfg.session.tz }}</code>. Schedule changes apply on next app start.</p>
+  </div>
+
+  <div class="card">
+    <h2>Factor weights</h2>
+    <p class="muted small">Relative importance of each rule-based factor. They're <b>normalised
+      automatically</b>, so they don't need to add up to any particular number. Current total:
+      <b id="wsum">—</b>.</p>
+    <div class="wgrid">
+      {% for name, val in cfg.weights.items() %}
+      <div class="field">
+        <label>{{ name.replace('_', ' ') }}</label>
+        <input class="w-input" type="number" step="0.01" min="0" name="w_{{ name }}" value="{{ val }}">
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="btnrow"><button class="btn" type="submit">Save settings</button></div>
+</form>
+
+<!-- ───────────────────────── Advanced ───────────────────────── -->
+<div class="card">
+  <details>
+    <summary>Advanced (raw JSON)</summary>
+    <p class="muted small">Structural config — edit as JSON. <code>gate</code> moves event categories
+      between veto and warn; <code>ml</code> holds the model gates; <code>tickers</code> / <code>session</code>
+      are the instruments and hours.</p>
+    <form method="post" action="/settings/advanced">
+      {% for key, val in advanced.items() %}
+        <label class="seclabel">{{ key }}</label>
+        <textarea name="{{ key }}" rows="{{ val.split('\n')|length + 1 }}" spellcheck="false">{{ val }}</textarea>
+      {% endfor %}
+      <div class="btnrow"><button class="btn" type="submit">Save advanced</button></div>
+    </form>
+  </details>
+</div>
+
+<div class="card">
   <form method="post" action="/settings/reset"
         onsubmit="return confirm('Reset ALL settings to defaults?')">
-    <button class="btn btn-secondary" type="submit">Reset to defaults</button>
+    <button class="btn btn-secondary" type="submit">Reset all to defaults</button>
   </form>
 </div>
+
+<script>
+  (function () {
+    function sum() {
+      var t = 0;
+      document.querySelectorAll('.w-input').forEach(function (i) { t += parseFloat(i.value) || 0; });
+      var el = document.getElementById('wsum');
+      if (el) el.textContent = t.toFixed(2);
+    }
+    document.querySelectorAll('.w-input').forEach(function (i) { i.addEventListener('input', sum); });
+    sum();
+  })();
+</script>
 {% endblock %}
