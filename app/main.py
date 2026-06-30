@@ -29,6 +29,25 @@ templates = Jinja2Templates(directory=str(BASE / "web" / "templates"))
 app = FastAPI(title="Trade / Don't-Trade Scale")
 app.mount("/static", StaticFiles(directory=str(BASE / "web" / "static")), name="static")
 
+# Defence-in-depth response headers. The app ships no third-party/inline scripts,
+# so script-src can stay locked to 'self'; inline style attributes (dynamic gauge /
+# bar widths) need 'unsafe-inline' on style-src only. data: is allowed for the
+# inline SVG favicon. These do not replace putting auth in front of the app.
+_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("Content-Security-Policy", _CSP)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    return resp
+
 
 @app.on_event("startup")
 def _startup() -> None:

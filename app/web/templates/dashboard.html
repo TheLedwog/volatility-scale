@@ -39,9 +39,11 @@
     {% if pred.features.dead_day %}<p class="muted">💤 Low expected range — possible dead day.</p>{% endif %}
     {% if pred.features.calendar_error %}<p class="muted">⚠ Calendar feed unavailable: {{ pred.features.calendar_error }}</p>{% endif %}
     {% if pred.features.model_note %}<p class="muted small">ℹ {{ pred.features.model_note }}</p>{% endif %}
-    <p class="muted small">Engine: {{ 'trained model' if pred.features.breakdown_kind == 'model' else 'rule-based' }}</p>
 
-    <form method="post" action="/run-predict"><button class="btn">↻ Recompute</button></form>
+    <div class="btnrow">
+      <form method="post" action="/run-predict"><button class="btn">↻ Recompute</button></form>
+      <span class="badge badge-sm">engine: {{ 'trained model' if pred.features.breakdown_kind == 'model' else 'rule-based' }}</span>
+    </div>
   </div>
 
   <div class="grid">

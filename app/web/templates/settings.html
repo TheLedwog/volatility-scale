@@ -27,16 +27,13 @@
       <input type="password" name="openai_api_key" autocomplete="off" spellcheck="false"
              placeholder="{{ 'paste a new key to replace the stored one' if key_status.stored_present else 'sk-…' }}">
       <button class="btn" type="submit">Save key</button>
-      <button class="btn btn-secondary" type="button"
-              hx-post="/settings/test-key"
-              hx-include="[name='openai_api_key']"
-              hx-target="#key-test-result" hx-swap="innerHTML">Test key</button>
+      <button class="btn btn-secondary" type="button" id="test-key-btn">Test key</button>
     </form>
     <div id="key-test-result"></div>
 
     {% if key_status.stored_present %}
     <form method="post" action="/settings/key/remove"
-          onsubmit="return confirm('Remove the key stored in the app?')">
+          data-confirm="Remove the key stored in the app?">
       <button class="btn btn-secondary" type="submit">Remove stored key</button>
     </form>
     {% endif %}
@@ -167,21 +164,8 @@
 
 <div class="card">
   <form method="post" action="/settings/reset"
-        onsubmit="return confirm('Reset ALL settings to defaults?')">
+        data-confirm="Reset ALL settings to defaults?">
     <button class="btn btn-secondary" type="submit">Reset all to defaults</button>
   </form>
 </div>
-
-<script>
-  (function () {
-    function sum() {
-      var t = 0;
-      document.querySelectorAll('.w-input').forEach(function (i) { t += parseFloat(i.value) || 0; });
-      var el = document.getElementById('wsum');
-      if (el) el.textContent = t.toFixed(2);
-    }
-    document.querySelectorAll('.w-input').forEach(function (i) { i.addEventListener('input', sum); });
-    sum();
-  })();
-</script>
 {% endblock %}
