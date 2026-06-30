@@ -41,6 +41,8 @@
     </div>
     {% endif %}
 
+    <div id="live-panel" class="live-strip">{% include "_live.html" %}</div>
+
     {% if pred.features.dead_day %}<p class="muted">💤 Low expected range — possible dead day.</p>{% endif %}
     {% if pred.features.calendar_error %}<p class="muted">⚠ Calendar feed unavailable: {{ pred.features.calendar_error }}</p>{% endif %}
     {% if pred.features.model_note %}<p class="muted small">ℹ {{ pred.features.model_note }}</p>{% endif %}
@@ -50,8 +52,6 @@
       <span class="muted small">Frozen pre-open call · graded after the close.</span>
     </div>
   </div>
-
-  <div id="live-panel" class="card live-card">{% include "_live.html" %}</div>
 
   <div class="grid">
     <div class="card">

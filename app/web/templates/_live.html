@@ -1,35 +1,33 @@
-{# Live intraday tracker fragment. Rendered inside #live-panel on the dashboard
-   and returned on its own by GET /live-panel for JS polling. #}
+{# Compact live-session strip. Lives INSIDE the verdict hero, directly under the
+   main gauge, so it reads as a subordinate "where today actually is so far" line
+   on the same choppy->directional axis - not a competing second scale. Rendered
+   server-side and also returned alone by GET /live-panel for JS polling. #}
 <span data-poll="{{ 1 if live.state == 'live' else 0 }}" hidden></span>
-<div class="live-head">
-  <span class="live-dot {{ 'on' if live.state == 'live' else '' }}"></span>
-  <h2>This session so far</h2>
-  {% if live.as_of %}<span class="muted small">as of {{ live.as_of }}</span>{% endif %}
-</div>
 
 {% if live.state == 'pre_open' %}
-  <p class="muted">Session opens at {{ live.open_str }}. The live tracker starts once the market is open — your morning verdict above is locked in until then.</p>
+  <div class="live-line"><span class="live-dot"></span>
+    <span class="muted small">Live tracker starts at {{ live.open_str }} — the verdict stays locked until then.</span></div>
 {% elif live.state == 'closed_day' %}
-  <p class="muted">No NY session today.</p>
+  <div class="live-line"><span class="live-dot"></span>
+    <span class="muted small">No NY session today.</span></div>
 {% elif live.state == 'waiting' %}
-  <p class="muted">Waiting for the first few bars of the session…</p>
+  <div class="live-line"><span class="live-dot on"></span>
+    <span class="muted small">Session live — waiting for the first bars…</span></div>
 {% elif live.state == 'error' %}
-  <p class="muted small">Live data unavailable right now: {{ live.error }}</p>
+  <div class="live-line"><span class="live-dot"></span>
+    <span class="muted small">Live data unavailable: {{ live.error }}</span></div>
 {% else %}
-  <div class="gauge-wrap">
-    <div class="gauge"><div class="needle" style="left: {{ live.dq }}%"></div></div>
-    <div class="gauge-labels">
-      <span>CHOPPY · whippy</span>
-      <span class="score">efficiency {{ live.er }}</span>
-      <span>DIRECTIONAL · clean</span>
-    </div>
+  <div class="live-line">
+    <span class="live-dot {{ 'on' if live.state == 'live' else '' }}"></span>
+    <span class="live-tag">{{ 'LIVE' if live.state == 'live' else 'SESSION CLOSED' }}</span>
+    <span class="muted small">how today is actually playing out · as of {{ live.as_of }}</span>
   </div>
-  <p>
-    <span class="badge badge-{{ 'good' if live.label == 'TRENDING' else ('avoid' if live.label == 'CHOPPY' else 'mixed') }}">{{ live.label }} so far</span>
-    <span class="muted">move {{ '%+.2f'|format(live.pct_move) }}% · {{ live.bars }} bars{{ ' · session closed' if live.state == 'after_close' else '' }}</span>
-  </p>
-  {% if live.call_check %}
-    <p class="callcheck {{ live.call_check.tone }}">{{ live.call_check.text }}</p>
-  {% endif %}
-  <p class="muted small">Live read of today's 9:30→now efficiency (index data may be ~15&nbsp;min delayed). Your morning verdict stays frozen — this just tracks how it's playing out.</p>
+  <div class="live-meter">
+    <div class="live-meter-track"><div class="live-marker" style="left: {{ live.dq }}%"></div></div>
+  </div>
+  <div class="live-stats">
+    <span class="badge badge-sm badge-{{ 'good' if live.label == 'TRENDING' else ('avoid' if live.label == 'CHOPPY' else 'mixed') }}">{{ live.label }}</span>
+    <span class="muted small">efficiency {{ live.er }} · move {{ '%+.2f'|format(live.pct_move) }}% · {{ live.bars }} bars</span>
+  </div>
+  {% if live.call_check %}<p class="callcheck {{ live.call_check.tone }}">{{ live.call_check.text }}</p>{% endif %}
 {% endif %}
