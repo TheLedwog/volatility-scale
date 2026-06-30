@@ -10,10 +10,15 @@
   <div class="card state-{{ state }}">
     <div class="verdict-row">
       <div>
-        <div class="muted">{{ pred.date }} · New York session</div>
+        <div class="muted">{{ pred.date }} · New York session{% if computed_at %} · <span title="Frozen pre-open call — graded after the close">computed {{ computed_at }}</span>{% endif %}</div>
         <h1 class="verdict">{{ pred.verdict }}</h1>
       </div>
-      <span class="badge badge-{{ state }}">{{ pred.tier }}</span>
+      <div class="hero-actions">
+        <span class="badge badge-{{ state }}">{{ pred.tier }}</span>
+        <form method="post" action="/run-predict" title="Re-run the pre-open call (only needed if data was stale)">
+          <button class="btn-icon" type="submit" aria-label="Recompute prediction">↻</button>
+        </form>
+      </div>
     </div>
 
     {% if pred.tier == 'VETO' %}
@@ -41,10 +46,12 @@
     {% if pred.features.model_note %}<p class="muted small">ℹ {{ pred.features.model_note }}</p>{% endif %}
 
     <div class="btnrow">
-      <form method="post" action="/run-predict"><button class="btn">↻ Recompute</button></form>
       <span class="badge badge-sm">engine: {{ 'trained model' if pred.features.breakdown_kind == 'model' else 'rule-based' }}</span>
+      <span class="muted small">Frozen pre-open call · graded after the close.</span>
     </div>
   </div>
+
+  <div id="live-panel" class="card live-card">{% include "_live.html" %}</div>
 
   <div class="grid">
     <div class="card">

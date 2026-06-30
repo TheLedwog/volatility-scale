@@ -168,6 +168,34 @@ code {
 .btnrow { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 form { margin: 0; }
 
+/* small, demoted icon button (e.g. the manual "recompute" refresh) */
+.hero-actions { display: flex; align-items: center; gap: 10px; }
+.btn-icon {
+  background: var(--card-2); color: var(--muted); border: 1px solid var(--line);
+  width: 34px; height: 34px; border-radius: 9px; font-size: 16px; line-height: 1;
+  cursor: pointer; transition: color .15s, border-color .15s;
+}
+.btn-icon:hover { color: var(--text); border-color: var(--accent); }
+.btn-icon:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* ---- live session tracker ------------------------------------------------ */
+.live-card .live-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.live-card .live-head h2 { margin: 0; }
+.live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--grey); flex: none; }
+.live-dot.on { background: var(--green); animation: livePulse 1.8s infinite; }
+@keyframes livePulse {
+  0%   { box-shadow: 0 0 0 0 rgba(52,211,153,.5); }
+  70%  { box-shadow: 0 0 0 7px rgba(52,211,153,0); }
+  100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+}
+.callcheck {
+  padding: 10px 13px; border-radius: var(--radius-sm); font-size: 14px; margin: 12px 0 0;
+  border: 1px solid var(--line); background: var(--card-2);
+}
+.callcheck.holding    { color: var(--green); border-color: rgba(52,211,153,.35); background: rgba(52,211,153,.08); }
+.callcheck.challenged { color: var(--amber); border-color: rgba(246,179,82,.35); background: rgba(246,179,82,.08); }
+.callcheck.neutral    { color: var(--muted); }
+
 /* ---- factor table -------------------------------------------------------- */
 table { width: 100%; border-collapse: collapse; }
 .factors td { padding: 7px 6px; vertical-align: middle; }

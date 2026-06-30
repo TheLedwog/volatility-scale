@@ -21,7 +21,15 @@ from .config import (
 from .db import init_db
 from .labeling.efficiency import run_labeling
 from .scoring.engine import run_prediction
-from .store import accuracy_summary, latest_model, latest_prediction, recent_history
+from .scoring.live import live_session
+from .store import (
+    accuracy_summary,
+    latest_model,
+    latest_prediction,
+    prediction_for,
+    recent_history,
+)
+from .timeutils import fmt_et, today_et
 
 BASE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE / "web" / "templates"))
@@ -66,6 +74,17 @@ def _startup() -> None:
         print(f"[startup] scheduler not started: {exc}")
 
 
+def _computed_at_str(pred: dict | None) -> str | None:
+    """Format a prediction's created_at as 'HH:MM ET' for the frozen-snapshot label."""
+    if not pred or not pred.get("created_at"):
+        return None
+    try:
+        from datetime import datetime
+        return fmt_et(datetime.fromisoformat(pred["created_at"]))
+    except (ValueError, TypeError):
+        return None
+
+
 def _display_state(pred: dict, cfg: dict) -> str:
     tier = pred["tier"]
     if tier in ("VETO", "CLOSED"):
@@ -85,10 +104,20 @@ def dashboard(request: Request):
     cfg = get_config()
     pred = latest_prediction()
     state = _display_state(pred, cfg) if pred else None
+    live = live_session(cfg, prediction_for(today_et().isoformat()))
     return templates.TemplateResponse(
         request, "dashboard.html",
-        {"pred": pred, "state": state, "cfg": cfg},
+        {"pred": pred, "state": state, "cfg": cfg, "live": live,
+         "computed_at": _computed_at_str(pred)},
     )
+
+
+@app.get("/live-panel")
+def live_panel(request: Request):
+    """Live intraday tracker fragment, polled by the dashboard while market is open."""
+    cfg = get_config()
+    live = live_session(cfg, prediction_for(today_et().isoformat()))
+    return templates.TemplateResponse(request, "_live.html", {"live": live})
 
 
 @app.post("/run-predict")

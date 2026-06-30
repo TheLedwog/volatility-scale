@@ -47,4 +47,25 @@
       if (!window.confirm(f.getAttribute("data-confirm"))) e.preventDefault();
     });
   });
+
+  // --- live session tracker: refresh while the market is open ---------------
+  // The frozen morning verdict is never touched; only #live-panel updates. The
+  // server marks the fragment with data-poll="1" only during the live session,
+  // so polling starts and stops on its own.
+  var livePanel = document.getElementById("live-panel");
+  if (livePanel) {
+    var POLL_MS = 120000; // 2 min - intraday efficiency moves slowly; be gentle to yfinance
+    var shouldPoll = function () {
+      var m = livePanel.querySelector("[data-poll]");
+      return !!m && m.getAttribute("data-poll") === "1";
+    };
+    var schedule = function () { if (shouldPoll()) window.setTimeout(refresh, POLL_MS); };
+    var refresh = function () {
+      fetch("/live-panel")
+        .then(function (r) { return r.text(); })
+        .then(function (htmlFragment) { livePanel.innerHTML = htmlFragment; schedule(); })
+        .catch(function () { schedule(); });
+    };
+    schedule(); // only fires if the initial server render says we're live
+  }
 })();
