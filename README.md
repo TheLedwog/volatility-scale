@@ -182,6 +182,38 @@ PORT=8001 python run.py
 
 Requires Python 3.10+ (Raspberry Pi OS Bookworm ships 3.11 — fine).
 
+### Easy: the one-shot installer (recommended)
+
+Clone the repo, then run the installer — it does everything: system + Python deps,
+**securely prompts for and saves your OpenAI API key**, seeds the news cache, builds
+the model, and installs a systemd service that starts on boot and runs the
+predict/label jobs automatically (in ET). No sudo prefix needed — it elevates only
+the steps that require it.
+
+```bash
+git clone https://github.com/<you>/volatility-scale.git
+cd volatility-scale
+bash install.sh
+```
+
+It's interactive (key entry is hidden) and **idempotent** — re-run it any time to
+change the port or rotate the key; your data is kept. The key is written to a
+git-ignored `.env` with `chmod 600` and is read by both the app and the service, so
+the live GPT news scoring works out of the box. When it finishes it prints the URL
+(`http://<pi-ip>:<port>`) and the `systemctl` / `journalctl` commands.
+
+**To remove it:**
+
+```bash
+bash uninstall.sh            # remove service, cron jobs, venv and the saved key
+bash uninstall.sh --purge    # ...and delete the local DB + model too
+```
+
+`uninstall.sh` keeps your prediction history by default (pass `--purge` to wipe it)
+and leaves the source checkout in place.
+
+### Manual (if you'd rather wire it yourself)
+
 ```bash
 # 1. system packages
 sudo apt update && sudo apt install -y python3-venv python3-pip git
@@ -199,7 +231,7 @@ pip install -r requirements.txt
 PORT=8001 python run.py        # then visit http://<pi-ip>:8001
 ```
 
-### Run it as a background service (starts on boot)
+#### Run it as a background service (starts on boot)
 
 ```bash
 # edit deploy/tradescale.service first: set User, WorkingDirectory and PORT
