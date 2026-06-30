@@ -133,6 +133,33 @@ spend without `--yes`) and resumable (re-runs skip already-scored days). Takes
 ~20–40 min due to polite GDELT throttling. As always, the model only auto-activates
 if it then beats the rules.
 
+### Carrying the news data to your Pi / other machines
+
+The backfill is slow and costs money, so its result is shipped **in the repo** and
+travels with every clone — you never re-run it elsewhere. Two files are committed
+(everything else under `data/` stays git-ignored, including the live `tradescale.db`,
+so a pull never clobbers a machine's own prediction history):
+
+- `data/news_seed.csv` — the GPT-scored news cache (the expensive part).
+- `data/training.csv` — the training set with the `news_*` columns baked in.
+
+On startup the app **auto-imports** `news_seed.csv` into any database whose news
+cache is empty (it never overwrites rows already there). So upgrading the Pi is
+just a pull + a retrain that rebuilds the *identical* model locally (the model is
+deterministic — same data in, same model out — so the binary isn't shipped):
+
+```bash
+cd ~/volatility-scale
+git pull
+.venv/bin/python -m app.ml.train        # rebuild model.joblib from the shipped training.csv
+sudo systemctl restart tradescale       # if running as a service (auto-imports the news cache)
+```
+
+`python -m app.ml.train` reads the committed `training.csv` (news already in it), so
+**no OpenAI key or internet is needed on the Pi** to get the news-aware model. To
+re-export the seed after scoring more days locally: `python -m app.ml.seed_news export`,
+then commit `data/news_seed.csv` (and the refreshed `data/training.csv`).
+
 ## Data sources
 
 - **Prices / VIX / futures:** yfinance (free).

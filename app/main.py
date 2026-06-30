@@ -34,6 +34,13 @@ app.mount("/static", StaticFiles(directory=str(BASE / "web" / "static")), name="
 def _startup() -> None:
     init_db()
     try:
+        from .ml.seed_news import seed_if_empty
+        n = seed_if_empty()
+        if n:
+            print(f"[startup] seeded {n} cached news days from news_seed.csv")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[startup] news seed skipped: {exc}")
+    try:
         from .scheduler import start_scheduler
         start_scheduler()
     except Exception as exc:  # noqa: BLE001

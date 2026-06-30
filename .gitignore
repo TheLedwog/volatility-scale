@@ -3,6 +3,13 @@ __pycache__/
 .venv/
 venv/
 .env
-data/
+
+# Ignore the data dir (live DB, cached bars, trained model) but ship the two
+# portable, version-controlled artifacts: the news cache + the training set.
+data/*
+!data/news_seed.csv
+!data/training.csv
+
+# The live database and any model binary are per-machine / regenerable.
 *.sqlite
 *.db
