@@ -38,6 +38,13 @@ DEFAULTS: dict = {
     "thresholds": {
         "good": 65,                 # direction_quality >= good  -> "good to trade"
         "caution": 40,              # < caution -> "choppy, avoid"
+        # The scale you SEE folds the gate into the raw score by DISCOUNTING it, so
+        # the needle stays fluid and monotonic - a clean-setup veto day still reads
+        # higher than an ugly one instead of snapping to a flat floor. A VETO
+        # multiplies the score by veto_score_multiplier (kept < caution/100 so veto
+        # days stay in the red); a WARN by warn_score_multiplier. CLEAN = x1.0.
+        "veto_score_multiplier": 0.25,
+        "warn_score_multiplier": 0.6,
         "dead_day_range_pct": 0.40, # ATR% below this -> low-opportunity flag
         "label_directional_er": 0.50,
         "label_choppy_er": 0.30,

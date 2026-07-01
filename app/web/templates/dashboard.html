@@ -29,15 +29,22 @@
       <p class="alert alert-closed">Market is closed today.</p>
     {% endif %}
 
-    {% if pred.direction_quality is not none %}
+    {% if overall is not none %}
     <div class="gauge-wrap">
-      <div class="gauge"><div class="needle" style="left: {{ pred.direction_quality }}%"></div></div>
+      <div class="gauge"><div class="needle" style="left: {{ overall }}%"></div></div>
       <div class="gauge-labels">
         <span>CHOPPY · don't trade</span>
-        <span class="score">{{ pred.direction_quality }}/100</span>
+        <span class="score">{{ overall }}/100</span>
         <span>DIRECTIONAL · trade</span>
       </div>
-      {% if pred.tier == 'VETO' %}<p class="muted small">(Score shown for info — the veto overrides it.)</p>{% endif %}
+      {% if pred.tier == 'VETO' and overall != pred.direction_quality %}
+        <p class="muted small">🚫 Underlying setup {{ pred.direction_quality }}/100, discounted to {{ overall }} because a high-impact event lands during the session.</p>
+      {% elif pred.tier == 'WARN' and overall != pred.direction_quality %}
+        <p class="muted small">⚠️ Underlying setup {{ pred.direction_quality }}/100, discounted to {{ overall }} for big pre-open data.</p>
+      {% endif %}
+      {% if news_blind and pred.tier not in ['VETO', 'CLOSED'] %}
+        <p class="muted small">📰 No news read today — the score doesn't include a news check.</p>
+      {% endif %}
     </div>
     {% endif %}
 

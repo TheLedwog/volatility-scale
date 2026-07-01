@@ -99,6 +99,37 @@ def _display_state(pred: dict, cfg: dict) -> str:
     return "mixed"
 
 
+def _overall_score(pred: dict, cfg: dict) -> int | None:
+    """The score the gauge SHOWS: the raw direction-quality with the gate folded in.
+
+    The gate DISCOUNTS the score (multiplies it) rather than capping it, so the needle
+    stays fluid and monotonic - a clean-setup veto day still reads higher than an ugly
+    one, but an intra-session event marks the whole day down into the red. A WARN is a
+    lighter discount; a clean day is the raw score unchanged (which already reflects the
+    news read when scored). Computed at render time so it also corrects stored predictions.
+    """
+    dq = pred.get("direction_quality")
+    if dq is None:
+        return None
+    th = cfg["thresholds"]
+    tier = pred.get("tier")
+    if tier == "VETO":
+        mult = th.get("veto_score_multiplier", 0.25)
+    elif tier == "WARN":
+        mult = th.get("warn_score_multiplier", 0.6)
+    else:
+        return dq
+    return int(round(dq * mult))
+
+
+def _news_blind(pred: dict, cfg: dict) -> bool:
+    """True when news is enabled but today has no GPT-scored read folded into the score."""
+    if not cfg.get("news", {}).get("enabled", False):
+        return False
+    nw = (pred.get("features") or {}).get("news")
+    return not (nw and nw.get("scored"))
+
+
 @app.get("/")
 def dashboard(request: Request):
     cfg = get_config()
@@ -108,7 +139,9 @@ def dashboard(request: Request):
     return templates.TemplateResponse(
         request, "dashboard.html",
         {"pred": pred, "state": state, "cfg": cfg, "live": live,
-         "computed_at": _computed_at_str(pred)},
+         "computed_at": _computed_at_str(pred),
+         "overall": _overall_score(pred, cfg) if pred else None,
+         "news_blind": _news_blind(pred, cfg) if pred else False},
     )
 
 
