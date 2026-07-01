@@ -5,17 +5,30 @@
     <h1>History &amp; accuracy</h1>
     <form method="post" action="/run-label"><button class="btn">Label latest session</button></form>
   </div>
-  <div class="acc">
-    <div class="stat"><span class="muted">Labeled days</span><b>{{ acc.samples }}</b></div>
-    <div class="stat"><span class="muted">Avg ER · predicted GOOD</span>
-      <b>{{ acc.avg_er_good if acc.avg_er_good is not none else '—' }}</b></div>
-    <div class="stat"><span class="muted">Avg ER · predicted AVOID</span>
-      <b>{{ acc.avg_er_avoid if acc.avg_er_avoid is not none else '—' }}</b></div>
-    <div class="stat"><span class="muted">VETO days that chopped</span>
-      <b>{% if acc.veto_chop_rate is not none %}{{ (acc.veto_chop_rate*100)|round|int }}% of {{ acc.veto_days }}{% else %}—{% endif %}</b></div>
+  {% if acc.overall_win_rate is not none %}
+  {% set wr = (acc.overall_win_rate*100)|round|int %}
+  <div class="winrate">
+    <b class="{{ 'wr-good' if wr >= 60 else ('wr-mid' if wr >= 45 else 'wr-low') }}">{{ wr }}%</b>
+    <span class="muted">win rate — its decisive calls that matched the day
+      ({{ acc.overall_n }} graded call{{ '' if acc.overall_n == 1 else 's' }})</span>
   </div>
-  <p class="muted small">Healthy signal = avg ER on GOOD days clearly above AVOID days, and a high
-    chop-rate on VETO days. Phase 3 turns this separation into a calibrated, trained model.</p>
+  {% else %}
+  <p class="muted">Not enough graded days yet for a win rate — label a few sessions and check back.</p>
+  {% endif %}
+  <div class="acc">
+    <div class="stat"><span class="muted">Says GO → trended ({{ acc.go_n }})</span>
+      <b>{% if acc.go_win_rate is not none %}{{ (acc.go_win_rate*100)|round|int }}%{% else %}—{% endif %}</b></div>
+    <div class="stat"><span class="muted">Says AVOID → chopped ({{ acc.avoid_n }})</span>
+      <b>{% if acc.avoid_hit_rate is not none %}{{ (acc.avoid_hit_rate*100)|round|int }}%{% else %}—{% endif %}</b></div>
+    <div class="stat"><span class="muted">VETO → chopped ({{ acc.veto_days }})</span>
+      <b>{% if acc.veto_chop_rate is not none %}{{ (acc.veto_chop_rate*100)|round|int }}%{% else %}—{% endif %}</b></div>
+    <div class="stat"><span class="muted">Graded days</span><b>{{ acc.samples }}</b></div>
+  </div>
+  <p class="muted small">A decisive call = a GO (score &ge; {{ acc.good_threshold }}) or an AVOID
+    (score &lt; {{ acc.caution_threshold }}); "correct" means a GO day trended or an AVOID day chopped.
+    The middle "be selective" band isn't scored. Avg realized efficiency: GO
+    {{ acc.avg_er_good if acc.avg_er_good is not none else '—' }} vs AVOID
+    {{ acc.avg_er_avoid if acc.avg_er_avoid is not none else '—' }} (bigger gap = cleaner separation).</p>
 </div>
 
 <div class="card">

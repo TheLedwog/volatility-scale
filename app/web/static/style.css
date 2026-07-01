@@ -239,6 +239,13 @@ table { width: 100%; border-collapse: collapse; }
 .stat span { display: block; font-size: 11.5px; margin-bottom: 5px; color: var(--muted); }
 .stat b { font-size: 21px; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 
+/* headline win rate */
+.winrate { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 4px 0 16px; }
+.winrate b { font-size: 46px; font-weight: 800; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.winrate .wr-good { color: var(--green); }
+.winrate .wr-mid  { color: var(--amber); }
+.winrate .wr-low  { color: var(--red); }
+
 /* ---- news ---------------------------------------------------------------- */
 .news { margin: 12px 0 0; padding-left: 18px; }
 .news li { margin: 5px 0; color: var(--muted); font-size: 13px; }
