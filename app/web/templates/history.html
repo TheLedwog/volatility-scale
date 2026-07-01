@@ -19,6 +19,41 @@
 </div>
 
 <div class="card">
+  <h2>Learned tier discounts</h2>
+  {% if not cal.enabled %}
+    <p class="muted">Learning is off — the gauge uses the fixed priors
+      (VETO &times;{{ cal.tiers.VETO.prior }}, WARN &times;{{ cal.tiers.WARN.prior }}).
+      Turn it on in Settings &rarr; <code>calibration</code>.</p>
+  {% elif not cal.ready %}
+    <p class="muted">Warming up — need {{ cal.min_baseline_days }} labeled normal (CLEAN) days to set a
+      baseline; have {{ cal.baseline_n }}. Until then the gauge uses the priors
+      (VETO &times;{{ cal.tiers.VETO.prior }}, WARN &times;{{ cal.tiers.WARN.prior }}).</p>
+  {% else %}
+  <p class="muted small">Each day's score is multiplied by its learned discount. Baseline (normal-day
+    realized efficiency) <b>{{ cal.baseline_er }}</b> from {{ cal.baseline_n }} CLEAN days; buckets
+    shrink toward the prior until they have enough days.</p>
+  <table class="factors">
+    {% for tier in ['VETO', 'WARN'] %}{% set t = cal.tiers[tier] %}
+    <tr>
+      <td class="fname"><span class="badge badge-sm">{{ tier }}</span> overall</td>
+      <td class="num"><b>&times;{{ t.pooled_m }}</b></td>
+      <td class="muted small">prior &times;{{ t.prior }} · {{ t.n }} day{{ '' if t.n == 1 else 's' }}{% if t.chop_rate is not none %} · {{ (t.chop_rate*100)|round|int }}% chopped{% endif %}{% if t.mean_er is not none %} · avg ER {{ t.mean_er }}{% endif %}</td>
+    </tr>
+    {% for cat, c in t.categories.items() if c.n >= cal.category_min_samples %}
+    <tr class="detail">
+      <td class="fname" style="padding-left:22px">&#8627; {{ cat }}</td>
+      <td class="num">&times;{{ c.m }}</td>
+      <td class="muted small">{{ c.n }} days · {{ (c.chop_rate*100)|round|int }}% chopped · avg ER {{ c.mean_er }}</td>
+    </tr>
+    {% endfor %}
+    {% endfor %}
+  </table>
+  {% endif %}
+  <p class="muted small">Learned live from your outcomes — no cap, so if veto days genuinely trade well
+    the needle is free to rise. Shrinkage / floor live in Settings &rarr; <code>calibration</code>.</p>
+</div>
+
+<div class="card">
   <div class="verdict-row">
     <h2>Trained model</h2>
     <form method="post" action="/run-train"><button class="btn btn-secondary">Retrain model</button></form>

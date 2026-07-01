@@ -41,8 +41,10 @@ DEFAULTS: dict = {
         # The scale you SEE folds the gate into the raw score by DISCOUNTING it, so
         # the needle stays fluid and monotonic - a clean-setup veto day still reads
         # higher than an ugly one instead of snapping to a flat floor. A VETO
-        # multiplies the score by veto_score_multiplier (kept < caution/100 so veto
-        # days stay in the red); a WARN by warn_score_multiplier. CLEAN = x1.0.
+        # multiplies the score by veto_score_multiplier, a WARN by warn_score_multiplier
+        # (CLEAN = x1.0). These are only the PRIOR: the calibration section below learns
+        # the real multiplier from labelled outcomes and shrinks toward these when data
+        # is thin (see app/scoring/calibration.py).
         "veto_score_multiplier": 0.25,
         "warn_score_multiplier": 0.6,
         "dead_day_range_pct": 0.40, # ATR% below this -> low-opportunity flag
@@ -60,6 +62,16 @@ DEFAULTS: dict = {
     # Soft-score engine: "auto" uses the trained model if data/model.joblib exists,
     # else falls back to the rule-based factors. "rules" / "model" force one.
     "scoring": {"mode": "auto"},
+    # Learns the VETO/WARN discount from realized outcomes (mirrors CALIB_DEFAULTS in
+    # app/scoring/calibration.py). Shrinks toward the thresholds priors when data is thin.
+    "calibration": {
+        "enabled": True,
+        "pseudocount": 6,          # shrinkage strength: higher trusts the prior for longer
+        "min_baseline_days": 5,    # labelled CLEAN days needed before trusting the learned discount
+        "category_min_samples": 3, # show a per-category row on History once it has this many days
+        "multiplier_floor": 0.05,  # noise guards (NOT a red-cap; pure-data can exceed the caution line)
+        "multiplier_ceiling": 1.5,
+    },
     "ml": {
         "lookback_days_daily": 800,
         "lookback_days_hourly": 730,   # yfinance hourly history cap

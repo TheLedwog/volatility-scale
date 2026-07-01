@@ -108,6 +108,10 @@ def run_prediction(d: date | None = None) -> dict:
     dq = f["direction_quality"]
     label, msg, ok = _verdict(tier, dq, cfg, f["dead_day"])
 
+    # The event category that set the tier - drives per-category discount learning.
+    tier_events = gate.get("veto_events") if tier == "VETO" else gate.get("warn_events")
+    primary_category = tier_events[0]["category"] if tier_events else None
+
     features = {
         "factors": f["factors"],
         "breakdown_kind": f.get("breakdown_kind", "rules"),
@@ -115,6 +119,7 @@ def run_prediction(d: date | None = None) -> dict:
         "model_version": f.get("model_version"),
         "model_note": model_note,
         "gate_tier": tier,
+        "gate_primary_category": primary_category,
         "dead_day": f["dead_day"],
         "atr_pct": f["atr_pct"],
         "events": _serializable_events(gate["events"]),

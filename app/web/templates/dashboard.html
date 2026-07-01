@@ -38,9 +38,9 @@
         <span>DIRECTIONAL · trade</span>
       </div>
       {% if pred.tier == 'VETO' and overall != pred.direction_quality %}
-        <p class="muted small">🚫 Underlying setup {{ pred.direction_quality }}/100, discounted to {{ overall }} because a high-impact event lands during the session.</p>
+        <p class="muted small">🚫 Adjusted for the intra-session event — pre-event setup was {{ pred.direction_quality }}/100 (see History for the learned discount).</p>
       {% elif pred.tier == 'WARN' and overall != pred.direction_quality %}
-        <p class="muted small">⚠️ Underlying setup {{ pred.direction_quality }}/100, discounted to {{ overall }} for big pre-open data.</p>
+        <p class="muted small">⚠️ Adjusted for big pre-open data — underlying setup {{ pred.direction_quality }}/100 (see History for the learned discount).</p>
       {% endif %}
       {% if news_blind and pred.tier not in ['VETO', 'CLOSED'] %}
         <p class="muted small">📰 No news read today — the score doesn't include a news check.</p>

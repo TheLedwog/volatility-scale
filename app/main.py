@@ -20,6 +20,7 @@ from .config import (
 )
 from .db import init_db
 from .labeling.efficiency import run_labeling
+from .scoring.calibration import calibrate, day_category, resolve_multiplier
 from .scoring.engine import run_prediction
 from .scoring.live import live_session
 from .store import (
@@ -99,27 +100,25 @@ def _display_state(pred: dict, cfg: dict) -> str:
     return "mixed"
 
 
-def _overall_score(pred: dict, cfg: dict) -> int | None:
+def _overall_score(pred: dict, cfg: dict, cal: dict | None = None) -> int | None:
     """The score the gauge SHOWS: the raw direction-quality with the gate folded in.
 
     The gate DISCOUNTS the score (multiplies it) rather than capping it, so the needle
     stays fluid and monotonic - a clean-setup veto day still reads higher than an ugly
-    one, but an intra-session event marks the whole day down into the red. A WARN is a
-    lighter discount; a clean day is the raw score unchanged (which already reflects the
-    news read when scored). Computed at render time so it also corrects stored predictions.
+    one. The multiplier is LEARNED per tier/event-category from realized outcomes
+    (calibration.py), shrinking toward the config prior when data is thin. A clean day is
+    the raw score unchanged. Computed at render time so it also corrects stored predictions.
     """
     dq = pred.get("direction_quality")
     if dq is None:
         return None
-    th = cfg["thresholds"]
     tier = pred.get("tier")
-    if tier == "VETO":
-        mult = th.get("veto_score_multiplier", 0.25)
-    elif tier == "WARN":
-        mult = th.get("warn_score_multiplier", 0.6)
-    else:
+    if tier not in ("VETO", "WARN"):
         return dq
-    return int(round(dq * mult))
+    cal = cal or calibrate(cfg)
+    category = day_category(pred.get("features") or {}, tier, cfg)
+    mult = resolve_multiplier(cal, cfg, tier, category)
+    return max(0, min(100, int(round(dq * mult))))
 
 
 def _news_blind(pred: dict, cfg: dict) -> bool:
@@ -170,7 +169,8 @@ def history(request: Request, training: str | None = None):
     return templates.TemplateResponse(
         request, "history.html",
         {"rows": recent_history(60), "acc": accuracy_summary(),
-         "model": latest_model(), "training": training},
+         "model": latest_model(), "training": training,
+         "cal": calibrate(get_config())},
     )
 
 
