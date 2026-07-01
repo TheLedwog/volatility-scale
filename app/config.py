@@ -95,9 +95,13 @@ DEFAULTS: dict = {
         "enabled": True,            # fetch headlines; GPT read needs an OpenAI key
         "provider": "gdelt",
         "max_headlines": 25,
-        "query": ('(stocks OR "stock market" OR "Federal Reserve" OR inflation OR '
-                  'tariffs OR war OR sanctions OR recession OR "interest rate") '
-                  'sourcelang:eng'),
+        # Relevance sort + GDELT GKG *theme* filters (not loose keyword OR over full
+        # article text, which pulled newest-anything junk like celebrity/gadget stories).
+        "sort": "hybridrel",
+        "require_finance_terms": True,  # drop any headline whose title isn't market-related
+        "extra_finance_terms": [],      # optional extra keep-terms (e.g. specific tickers)
+        "query": ('(theme:ECON_STOCKMARKET OR theme:ECON_INTEREST_RATE OR '
+                  'theme:ECON_INFLATION OR theme:ECON_CENTRALBANK) sourcelang:eng'),
     },
 }
 

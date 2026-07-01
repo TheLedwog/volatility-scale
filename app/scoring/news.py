@@ -11,7 +11,16 @@ from datetime import date
 from ..config import openai_api_key
 from ..db import get_conn
 from ..providers import get_llm_provider, get_news_provider
+from ..providers.base import filter_market_headlines
 from ..timeutils import now_et
+
+
+def _clean(cfg: dict, headlines: list[str]) -> list[str]:
+    """Apply the market-relevance filter (also scrubs junk from older cached rows)."""
+    n = cfg.get("news", {})
+    if not n.get("require_finance_terms", True):
+        return headlines
+    return filter_market_headlines(headlines or [], n.get("extra_finance_terms"))
 
 
 def _load(date_str: str) -> dict | None:
@@ -69,6 +78,7 @@ def get_news_assessment(cfg: dict, d: date, use_cache: bool = True) -> dict | No
             # Reuse if already GPT-scored, or if we still have no key to score with
             # (avoids re-hitting GDELT every run). Re-score once a key is added.
             if cached["scored"] or not has_key:
+                cached["headlines"] = _clean(cfg, cached.get("headlines", []))
                 return cached
 
     fetch_err = None
