@@ -332,6 +332,14 @@ async def settings_test_key(openai_api_key: str = Form("")):
     return HTMLResponse(f'<p class="alert {cls} small">{icon} {html.escape(msg)}</p>')
 
 
+@app.get("/settings/check-data")
+def settings_check_data(request: Request):
+    """Live health check of the scraped feeds (yfinance + calendar), for Settings."""
+    from .providers.health import check_all_feeds
+    result = check_all_feeds(get_config())
+    return templates.TemplateResponse(request, "_datacheck.html", {"result": result})
+
+
 @app.post("/settings/reset")
 def settings_reset():
     reset()

@@ -41,6 +41,22 @@
     });
   }
 
+  // --- "Check data feeds" button (yfinance / calendar health) ---------------
+  var checkBtn = document.getElementById("check-data-btn");
+  if (checkBtn) {
+    checkBtn.addEventListener("click", function () {
+      var target = document.getElementById("data-check-result");
+      if (!target) return;
+      target.innerHTML = '<p class="alert small">Checking data feeds…</p>';
+      fetch("/settings/check-data")
+        .then(function (r) { return r.text(); })
+        .then(function (htmlFragment) { target.innerHTML = htmlFragment; })
+        .catch(function () {
+          target.innerHTML = '<p class="alert alert-veto small">Check failed to run.</p>';
+        });
+    });
+  }
+
   // --- confirm() for destructive forms, without inline handlers -------------
   document.querySelectorAll("form[data-confirm]").forEach(function (f) {
     f.addEventListener("submit", function (e) {

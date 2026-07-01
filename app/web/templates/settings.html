@@ -45,6 +45,16 @@
   </div>
 </div>
 
+<!-- ───────────────────────── Data feed health ───────────────────────── -->
+<div class="card">
+  <h2>🩺 Data feed health</h2>
+  <p class="muted small">yfinance (prices/VIX/futures) and the ForexFactory calendar are free,
+    <b>unofficial</b> feeds that can break silently if the upstream site changes — which would quietly
+    degrade the score. Run the exact data calls the score depends on and confirm they still work.</p>
+  <button class="btn btn-secondary" type="button" id="check-data-btn">Check data feeds</button>
+  <div id="data-check-result"></div>
+</div>
+
 <!-- ───────────────────────── Common settings ───────────────────────── -->
 <form method="post" action="/settings">
   <div class="card">

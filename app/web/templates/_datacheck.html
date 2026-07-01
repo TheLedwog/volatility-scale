@@ -1,0 +1,32 @@
+{# Data-feed health result fragment, returned by GET /settings/check-data and
+   injected by app.js. Standalone (no extends). #}
+<div class="feedcheck">
+  {% if result.ok and not result.degraded %}
+    <p class="alert alert-ok small">&#10003; All data feeds are responding.</p>
+  {% elif result.ok and result.degraded %}
+    <p class="alert alert-warn small">&#9888; Working, but an optional feed (VIX3M) is down &mdash; minor,
+      the score degrades gracefully without it.</p>
+  {% else %}
+    <p class="alert alert-veto small">&#10007; A required data feed looks broken. yfinance / ForexFactory
+      may have changed &mdash; the scrape needs a fix or a licensed-provider swap.</p>
+  {% endif %}
+
+  {% for feed in result.feeds %}
+  <div class="feed">
+    <div class="feed-h">
+      <b>{{ feed.provider }}</b>
+      <span class="badge badge-sm badge-{{ 'good' if feed.ok else 'avoid' }}">{{ 'OK' if feed.ok else 'CHECK' }}</span>
+    </div>
+    <table class="factors">
+      {% for c in feed.checks %}
+      <tr>
+        <td class="fname">{{ c.name }} <span class="muted small">{{ c.ticker }}</span></td>
+        <td class="num">{% if c.ok %}<span class="ok">&#10003;</span>{% elif c.optional %}<span class="warn">&#9888;</span>{% else %}<span class="bad">&#10007;</span>{% endif %}</td>
+        <td class="muted small">{{ c.detail }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+  <p class="muted small">Checked live just now &mdash; runs the exact data calls the score depends on.</p>
+</div>
