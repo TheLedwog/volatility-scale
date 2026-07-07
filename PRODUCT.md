@@ -42,12 +42,19 @@ All endpoints are GET and require the API key when `API_KEY` is set. Interactive
 
 `GET /healthz` (no auth, no upstream calls) is a cheap liveness ping for the host.
 
-### Auth
+### Auth & hardening
 - **`API_KEY`** guards `/api/v1/*`. Send `Authorization: Bearer <key>` or `X-API-Key: <key>`.
 - **`ADMIN_USER` / `ADMIN_PASS`** guard the Jinja UI via HTTP Basic.
 - **`FRONTEND_ORIGINS`** — comma-separated CORS allowlist (only needed for direct browser
   calls; server-side calls from Next.js don't need it).
-- **All optional**: unset ⇒ that gate is open, so local dev / the dev box behave as before.
+- **Rate limiting** — per-IP caps (`RATELIMIT_ADMIN` default 30/60, `RATELIMIT_API` default
+  240/60); over the cap returns `429` with `Retry-After`. Tight on the admin surface
+  (brute-force defence), generous on the API (traffic shares the frontend server's IPs).
+  `/healthz` and `/static` are exempt.
+- **HSTS** — `Strict-Transport-Security` (1 year) is sent on HTTPS responses only, so plain
+  `http://localhost` dev is unaffected. Plus the existing CSP / anti-clickjacking headers.
+- **Auth/CORS are optional**: unset ⇒ that gate is open, so local dev / the dev box behave as
+  before. Rate limiting and HSTS are always on (HSTS only advertised over HTTPS).
 
 ## Running
 
