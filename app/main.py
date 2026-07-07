@@ -9,11 +9,12 @@ from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .api.routes import router as api_router
+from .api.ratelimit import ADMIN_LIMIT, API_LIMIT, check as ratelimit_check, client_ip
 from .api.security import admin_credentials, check_basic_auth
 from .config import (
     get_config,
@@ -81,6 +82,13 @@ async def _security_headers(request: Request, call_next):
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    # HSTS: force HTTPS for a year, but only advertise it on connections that are
+    # actually HTTPS (the proxy sets X-Forwarded-Proto). Browsers ignore HSTS sent
+    # over plain HTTP anyway, so this just keeps local http://localhost dev clean.
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    if proto == "https":
+        resp.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return resp
 
 
@@ -100,6 +108,32 @@ async def _admin_auth(request: Request, call_next):
             return Response(
                 status_code=401,
                 headers={"WWW-Authenticate": 'Basic realm="tradescale admin"'},
+            )
+    return await call_next(request)
+
+
+# Cheap liveness + static assets are never rate limited.
+_RATELIMIT_EXEMPT = ("/static/", "/healthz", "/favicon")
+
+
+@app.middleware("http")
+async def _rate_limit(request: Request, call_next):
+    """Per-IP request cap. A generous bucket for the API (traffic shares the
+    frontend server's IPs) and a tight one for the admin surface (brute-force
+    defence). Defined last so it runs first - abusive requests are rejected before
+    any auth check or handler work."""
+    path = request.url.path
+    if not path.startswith(_RATELIMIT_EXEMPT):
+        if path.startswith("/api/"):
+            bucket, (max_n, window) = "api", API_LIMIT
+        else:
+            bucket, (max_n, window) = "admin", ADMIN_LIMIT
+        allowed, retry_after = ratelimit_check(bucket, client_ip(request), max_n, window)
+        if not allowed:
+            return JSONResponse(
+                {"detail": "Too many requests"},
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
             )
     return await call_next(request)
 
