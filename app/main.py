@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .api.routes import router as api_router
+from .api.security import admin_credentials, check_basic_auth
 from .config import (
     get_config,
     openai_api_key as resolve_openai_key,
@@ -20,9 +24,15 @@ from .config import (
 )
 from .db import init_db
 from .labeling.efficiency import run_labeling
-from .scoring.calibration import calibrate, day_category, resolve_multiplier
+from .scoring.calibration import calibrate
 from .scoring.engine import run_prediction
 from .scoring.live import live_session
+from .service.verdict import (
+    computed_at_str,
+    display_state,
+    news_blind,
+    overall_score,
+)
 from .store import (
     accuracy_summary,
     latest_model,
@@ -30,13 +40,29 @@ from .store import (
     prediction_for,
     recent_history,
 )
-from .timeutils import fmt_et, today_et
+from .timeutils import today_et
 
 BASE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE / "web" / "templates"))
 
 app = FastAPI(title="Trade / Don't-Trade Scale")
 app.mount("/static", StaticFiles(directory=str(BASE / "web" / "static")), name="static")
+
+# CORS for the separate frontend (e.g. Vercel). Origins come from FRONTEND_ORIGINS
+# (comma-separated); empty = no cross-origin allowed. Server-side calls from the
+# Next.js host don't need CORS, so this is belt-and-suspenders for browser calls.
+_origins = [o.strip() for o in os.environ.get("FRONTEND_ORIGINS", "").split(",") if o.strip()]
+if _origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_origins,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+        allow_credentials=False,
+    )
+
+# The JSON product API (/api/v1/*), guarded by its own API key (see api/security.py).
+app.include_router(api_router)
 
 # Defence-in-depth response headers. The app ships no third-party/inline scripts,
 # so script-src can stay locked to 'self'; inline style attributes (dynamic gauge /
@@ -58,6 +84,26 @@ async def _security_headers(request: Request, call_next):
     return resp
 
 
+# Paths exempt from the admin HTTP-Basic gate: the JSON API (its own key auth),
+# static assets, the OpenAPI docs, and the liveness ping.
+_ADMIN_PUBLIC = ("/api/", "/static/", "/docs", "/redoc", "/openapi.json",
+                 "/healthz", "/favicon")
+
+
+@app.middleware("http")
+async def _admin_auth(request: Request, call_next):
+    """HTTP Basic gate for the Jinja admin/testing UI. Open in local dev (no
+    ADMIN_USER/ADMIN_PASS set); required once they are, e.g. on the cloud host.
+    The product API under /api/ is exempt - it uses its own API-key auth."""
+    if admin_credentials() and not request.url.path.startswith(_ADMIN_PUBLIC):
+        if not check_basic_auth(request.headers.get("Authorization")):
+            return Response(
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="tradescale admin"'},
+            )
+    return await call_next(request)
+
+
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
@@ -75,72 +121,18 @@ def _startup() -> None:
         print(f"[startup] scheduler not started: {exc}")
 
 
-def _computed_at_str(pred: dict | None) -> str | None:
-    """Format a prediction's created_at as 'HH:MM ET' for the frozen-snapshot label."""
-    if not pred or not pred.get("created_at"):
-        return None
-    try:
-        from datetime import datetime
-        return fmt_et(datetime.fromisoformat(pred["created_at"]))
-    except (ValueError, TypeError):
-        return None
-
-
-def _display_state(pred: dict, cfg: dict) -> str:
-    tier = pred["tier"]
-    if tier in ("VETO", "CLOSED"):
-        return tier.lower()
-    if tier == "WARN":
-        return "warn"
-    dq = pred.get("direction_quality") or 0
-    if dq >= cfg["thresholds"]["good"]:
-        return "good"
-    if dq < cfg["thresholds"]["caution"]:
-        return "avoid"
-    return "mixed"
-
-
-def _overall_score(pred: dict, cfg: dict, cal: dict | None = None) -> int | None:
-    """The score the gauge SHOWS: the raw direction-quality with the gate folded in.
-
-    The gate DISCOUNTS the score (multiplies it) rather than capping it, so the needle
-    stays fluid and monotonic - a clean-setup veto day still reads higher than an ugly
-    one. The multiplier is LEARNED per tier/event-category from realized outcomes
-    (calibration.py), shrinking toward the config prior when data is thin. A clean day is
-    the raw score unchanged. Computed at render time so it also corrects stored predictions.
-    """
-    dq = pred.get("direction_quality")
-    if dq is None:
-        return None
-    tier = pred.get("tier")
-    if tier not in ("VETO", "WARN"):
-        return dq
-    cal = cal or calibrate(cfg)
-    category = day_category(pred.get("features") or {}, tier, cfg)
-    mult = resolve_multiplier(cal, cfg, tier, category)
-    return max(0, min(100, int(round(dq * mult))))
-
-
-def _news_blind(pred: dict, cfg: dict) -> bool:
-    """True when news is enabled but today has no GPT-scored read folded into the score."""
-    if not cfg.get("news", {}).get("enabled", False):
-        return False
-    nw = (pred.get("features") or {}).get("news")
-    return not (nw and nw.get("scored"))
-
-
 @app.get("/")
 def dashboard(request: Request):
     cfg = get_config()
     pred = latest_prediction()
-    state = _display_state(pred, cfg) if pred else None
+    state = display_state(pred, cfg) if pred else None
     live = live_session(cfg, prediction_for(today_et().isoformat()))
     return templates.TemplateResponse(
         request, "dashboard.html",
         {"pred": pred, "state": state, "cfg": cfg, "live": live,
-         "computed_at": _computed_at_str(pred),
-         "overall": _overall_score(pred, cfg) if pred else None,
-         "news_blind": _news_blind(pred, cfg) if pred else False},
+         "computed_at": computed_at_str(pred),
+         "overall": overall_score(pred, cfg) if pred else None,
+         "news_blind": news_blind(pred, cfg) if pred else False},
     )
 
 
@@ -346,6 +338,7 @@ def settings_reset():
     return RedirectResponse(url="/settings?saved=reset", status_code=303)
 
 
-@app.get("/api/status")
-def api_status():
-    return {"latest": latest_prediction(), "accuracy": accuracy_summary()}
+@app.get("/healthz")
+def healthz():
+    """Cheap liveness ping for the host's health check (no data-feed calls, no auth)."""
+    return {"status": "ok"}
