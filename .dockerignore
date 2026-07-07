@@ -1,0 +1,17 @@
+# Keep the build context lean and never bake per-machine state into the image.
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+
+# Per-machine / regenerable data. The committed seed + training CSVs are NOT
+# excluded (no data/* rule), so they ship in the image; the live DB and model do not.
+data/*.db
+data/*.sqlite
+data/model.joblib
+
+.env
+*.md
+!PRODUCT.md

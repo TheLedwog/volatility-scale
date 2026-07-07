@@ -1,11 +1,18 @@
 """SQLite storage: connection, schema, and small helpers."""
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
+# Repo-relative data dir holds the version-controlled assets (news seed, training
+# set, trained model). It stays put so those paths never move.
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-DB_PATH = DATA_DIR / "tradescale.db"
+
+# The live database can be redirected to a persistent volume in the cloud (the
+# container filesystem is ephemeral) via TRADESCALE_DB, e.g. /data/tradescale.db.
+# Unset -> the repo data dir, exactly as before on the dev box / Pi.
+DB_PATH = Path(os.environ["TRADESCALE_DB"]) if os.environ.get("TRADESCALE_DB") else DATA_DIR / "tradescale.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS config (
@@ -62,6 +69,7 @@ CREATE TABLE IF NOT EXISTS news_scores (
 
 def get_conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
