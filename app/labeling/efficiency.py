@@ -8,11 +8,59 @@ from __future__ import annotations
 
 from datetime import date
 
+from datetime import datetime
+
 from ..config import get_config
 from ..db import get_conn
 from ..market_calendar import is_trading_day, prev_trading_day
 from ..providers import get_price_provider
-from ..timeutils import now_et, parse_hhmm, session_window, today_et
+from ..timeutils import ET, now_et, parse_hhmm, session_window, today_et
+
+
+def _window_er(s) -> float | None:
+    """Kaufman efficiency ratio over a slice of 5-min bars, or None if too short.
+
+    net move / total path, using the first bar's Open as the window's origin so a
+    gap into the window still counts toward the path (same convention the live
+    tracker and the full-session labeler have always used).
+    """
+    if s is None or len(s) < 2:
+        return None
+    closes = s["Close"].astype(float)
+    w_open = float(s["Open"].astype(float).iloc[0])
+    net = abs(float(closes.iloc[-1]) - w_open)
+    path = float(closes.diff().abs().sum()) + abs(float(closes.iloc[0]) - w_open)
+    return (net / path) if path > 0 else 0.0
+
+
+def blended_session_er(s, d: date, cfg: dict) -> tuple[float, float | None, float | None]:
+    """Grade a session slice `s` (5-min bars) as a morning/afternoon ER blend.
+
+    Returns (blended_er, morning_er, afternoon_er). Splitting the day and blending
+    stops a clean morning that round-trips after lunch from grading as all-day chop
+    (see the `grading` config section). Degrades to whichever half exists (early
+    close / thin data), and finally to a single full-session ER, so it never fails.
+    """
+    grading = cfg.get("grading", {})
+    w = float(grading.get("morning_weight", 0.7))
+    split_dt = datetime.combine(d, parse_hhmm(grading.get("split_time", "12:00")), ET)
+
+    idx = s.index
+    if idx.tz is None:
+        idx = idx.tz_localize("UTC")
+    et = idx.tz_convert("America/New_York")
+    morning_er = _window_er(s.loc[et < split_dt])
+    afternoon_er = _window_er(s.loc[et >= split_dt])
+
+    if morning_er is not None and afternoon_er is not None:
+        blended = w * morning_er + (1.0 - w) * afternoon_er
+    elif morning_er is not None:
+        blended = morning_er
+    elif afternoon_er is not None:
+        blended = afternoon_er
+    else:
+        blended = _window_er(s) or 0.0
+    return blended, morning_er, afternoon_er
 
 
 def _default_label_date() -> date:
@@ -51,12 +99,10 @@ def run_labeling(d: date | None = None) -> dict:
     if len(s) < 5:
         return {"date": d.isoformat(), "error": "session not available yet (need 5-min bars)"}
 
-    closes = s["Close"].astype(float)
+    # Grade on the morning/afternoon ER blend (see grading config); range stays a
+    # full-session "how big was the day" measure, not a directionality claim.
+    er, morning_er, afternoon_er = blended_session_er(s, d, cfg)
     session_open = float(s["Open"].astype(float).iloc[0])
-    session_close = float(closes.iloc[-1])
-    net = abs(session_close - session_open)
-    path = float(closes.diff().abs().sum()) + abs(float(closes.iloc[0]) - session_open)
-    er = (net / path) if path > 0 else 0.0
     rng = float(s["High"].astype(float).max() - s["Low"].astype(float).min())
     range_pct = (rng / session_open * 100.0) if session_open else 0.0
 
@@ -69,6 +115,8 @@ def run_labeling(d: date | None = None) -> dict:
 
     result = {
         "date": d.isoformat(), "realized_er": round(er, 3),
+        "morning_er": round(morning_er, 3) if morning_er is not None else None,
+        "afternoon_er": round(afternoon_er, 3) if afternoon_er is not None else None,
         "realized_range": round(rng, 2), "range_pct": round(range_pct, 3),
         "realized_label": label, "bars": int(len(s)),
     }
