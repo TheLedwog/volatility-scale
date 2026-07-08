@@ -51,6 +51,16 @@ DEFAULTS: dict = {
         "label_directional_er": 0.50,
         "label_choppy_er": 0.30,
     },
+    # How the post-close grade is measured. A single full-session efficiency ratio
+    # punishes a clean morning that round-trips in the afternoon (net close~=open,
+    # huge path -> looks like all-day chop). Instead we grade the morning and the
+    # afternoon separately and blend them, so a directional morning still scores as
+    # tradeable. Morning is weighted higher because most intraday edge is in the NY
+    # morning, but the afternoon still counts (the tool serves many trading styles).
+    "grading": {
+        "morning_weight": 0.7,   # weight on the morning ER; afternoon gets (1 - this)
+        "split_time": "12:00",   # ET boundary between the morning and afternoon windows
+    },
     "gate": {
         # Categories that VETO the day if scheduled intra-session.
         "veto_categories": ["monetary_policy", "ism", "jolts", "consumer_confidence"],
