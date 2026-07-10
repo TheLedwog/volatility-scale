@@ -3,7 +3,12 @@
 <div class="card">
   <div class="verdict-row">
     <h1>History &amp; accuracy</h1>
-    <form method="post" action="/run-label"><button class="btn">Label latest session</button></form>
+    <div class="btnrow" style="margin-top:0">
+      <form method="post" action="/run-label"><button class="btn">Label latest session</button></form>
+      <form method="post" action="/run-regrade" data-confirm="Re-label the last ~60 sessions with the current thresholds? This overwrites their stored grades.">
+        <button class="btn btn-secondary">Re-grade recent history</button>
+      </form>
+    </div>
   </div>
   {% if acc.overall_win_rate is not none %}
   {% set wr = (acc.overall_win_rate*100)|round|int %}

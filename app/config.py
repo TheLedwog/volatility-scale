@@ -48,18 +48,16 @@ DEFAULTS: dict = {
         "veto_score_multiplier": 0.25,
         "warn_score_multiplier": 0.6,
         "dead_day_range_pct": 0.40, # ATR% below this -> low-opportunity flag
-        "label_directional_er": 0.50,
-        "label_choppy_er": 0.30,
-    },
-    # How the post-close grade is measured. A single full-session efficiency ratio
-    # punishes a clean morning that round-trips in the afternoon (net close~=open,
-    # huge path -> looks like all-day chop). Instead we grade the morning and the
-    # afternoon separately and blend them, so a directional morning still scores as
-    # tradeable. Morning is weighted higher because most intraday edge is in the NY
-    # morning, but the afternoon still counts (the tool serves many trading styles).
-    "grading": {
-        "morning_weight": 0.7,   # weight on the morning ER; afternoon gets (1 - this)
-        "split_time": "12:00",   # ET boundary between the morning and afternoon windows
+        # Cutoffs that turn the realized full-session 5-min efficiency ratio into a
+        # CHOPPY/MIXED/DIRECTIONAL label. Calibrated to the 5-MIN scale, NOT the
+        # coarser hourly-bar ER the ML bootstrap used: a 5-min session has ~10x the
+        # path of an hourly one, so its ER runs far lower (60-day full-session:
+        # median ~0.10, 90th pct ~0.24, max ~0.39). The old 0.50/0.30 were hourly-
+        # scale values and graded ~95% of real days CHOPPY with DIRECTIONAL literally
+        # unreachable (0/60 days). At 0.28/0.08 a dead round-trip reads CHOPPY, a
+        # middling day MIXED, and only a genuinely clean one-way glide DIRECTIONAL.
+        "label_directional_er": 0.28,
+        "label_choppy_er": 0.08,
     },
     "gate": {
         # Categories that VETO the day if scheduled intra-session.

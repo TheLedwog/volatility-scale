@@ -11,7 +11,6 @@ from __future__ import annotations
 import time as _time
 
 from ..config import get_config
-from ..labeling.efficiency import blended_session_er
 from ..market_calendar import is_trading_day
 from ..providers import get_price_provider
 from ..timeutils import fmt_et, now_et, session_window, today_et
@@ -98,16 +97,12 @@ def live_session(cfg: dict | None = None, pred: dict | None = None) -> dict:
     pct_move = ((last - session_open) / session_open * 100.0) if session_open else 0.0
 
     after_close = now >= close_dt
-    if after_close:
-        # Once the session is done, grade with the SAME morning/afternoon blend the
-        # post-close labeler uses, so the live strip agrees with the stored verdict
-        # instead of showing a round-trip day as all-day chop.
-        er, _m, _a = blended_session_er(s, d, cfg)
-    else:
-        # Intraday: an honest running read of how the session is unfolding so far.
-        net = abs(last - session_open)
-        path = float(closes.diff().abs().sum()) + abs(float(closes.iloc[0]) - session_open)
-        er = (net / path) if path > 0 else 0.0
+    # A running read of how directional the 9:30->now session is (full-session
+    # Kaufman ER, closes only). At/after the close this is the whole session and
+    # matches the post-close labeler, so the live strip agrees with the stored grade.
+    net = abs(last - session_open)
+    path = float(closes.diff().abs().sum()) + abs(float(closes.iloc[0]) - session_open)
+    er = (net / path) if path > 0 else 0.0
 
     if er >= th["label_directional_er"]:
         label = "TRENDING"
