@@ -9,8 +9,7 @@ def main() -> None:
     if r.get("error"):
         print(f"[label] {r['date']}  error: {r['error']}")
         return
-    print(f"[label] {r['date']}  ER={r['realized_er']} "
-          f"(am={r.get('morning_er')} pm={r.get('afternoon_er')})  "
+    print(f"[label] {r['date']}  ER={r['realized_er']}  "
           f"label={r['realized_label']}  range%={r['range_pct']}  bars={r['bars']}")
 
 

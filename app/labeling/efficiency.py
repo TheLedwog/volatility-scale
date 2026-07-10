@@ -8,13 +8,11 @@ from __future__ import annotations
 
 from datetime import date
 
-from datetime import datetime
-
 from ..config import get_config
 from ..db import get_conn
 from ..market_calendar import is_trading_day, prev_trading_day
 from ..providers import get_price_provider
-from ..timeutils import ET, now_et, parse_hhmm, session_window, today_et
+from ..timeutils import now_et, parse_hhmm, session_window, today_et
 
 
 def _window_er(s) -> float | None:
@@ -31,36 +29,6 @@ def _window_er(s) -> float | None:
     net = abs(float(closes.iloc[-1]) - w_open)
     path = float(closes.diff().abs().sum()) + abs(float(closes.iloc[0]) - w_open)
     return (net / path) if path > 0 else 0.0
-
-
-def blended_session_er(s, d: date, cfg: dict) -> tuple[float, float | None, float | None]:
-    """Grade a session slice `s` (5-min bars) as a morning/afternoon ER blend.
-
-    Returns (blended_er, morning_er, afternoon_er). Splitting the day and blending
-    stops a clean morning that round-trips after lunch from grading as all-day chop
-    (see the `grading` config section). Degrades to whichever half exists (early
-    close / thin data), and finally to a single full-session ER, so it never fails.
-    """
-    grading = cfg.get("grading", {})
-    w = float(grading.get("morning_weight", 0.7))
-    split_dt = datetime.combine(d, parse_hhmm(grading.get("split_time", "12:00")), ET)
-
-    idx = s.index
-    if idx.tz is None:
-        idx = idx.tz_localize("UTC")
-    et = idx.tz_convert("America/New_York")
-    morning_er = _window_er(s.loc[et < split_dt])
-    afternoon_er = _window_er(s.loc[et >= split_dt])
-
-    if morning_er is not None and afternoon_er is not None:
-        blended = w * morning_er + (1.0 - w) * afternoon_er
-    elif morning_er is not None:
-        blended = morning_er
-    elif afternoon_er is not None:
-        blended = afternoon_er
-    else:
-        blended = _window_er(s) or 0.0
-    return blended, morning_er, afternoon_er
 
 
 def _default_label_date() -> date:
@@ -86,10 +54,13 @@ def _session_slice(df, d: date, sess: dict):
 def _grade_slice(s, d: date, cfg: dict, th: dict) -> dict:
     """Turn a session slice into the stored outcome dict (does not persist).
 
-    Grades on the morning/afternoon ER blend (see grading config); range stays a
+    Grades on the Kaufman ER of the WHOLE 9:30-16:00 session (no morning/afternoon
+    split): a day that drives one way then round-trips back is chop you'd get
+    whipsawed on, so it must read as chop - splitting the day and blending the
+    halves wrongly rewarded each clean half and hid the round-trip. Range stays a
     full-session "how big was the day" measure, not a directionality claim.
     """
-    er, morning_er, afternoon_er = blended_session_er(s, d, cfg)
+    er = _window_er(s) or 0.0
     session_open = float(s["Open"].astype(float).iloc[0])
     rng = float(s["High"].astype(float).max() - s["Low"].astype(float).min())
     range_pct = (rng / session_open * 100.0) if session_open else 0.0
@@ -103,8 +74,6 @@ def _grade_slice(s, d: date, cfg: dict, th: dict) -> dict:
 
     return {
         "date": d.isoformat(), "realized_er": round(er, 3),
-        "morning_er": round(morning_er, 3) if morning_er is not None else None,
-        "afternoon_er": round(afternoon_er, 3) if afternoon_er is not None else None,
         "realized_range": round(rng, 2), "range_pct": round(range_pct, 3),
         "realized_label": label, "bars": int(len(s)),
     }
@@ -137,7 +106,7 @@ def run_labeling(d: date | None = None) -> dict:
 def run_regrade(days: int = 60) -> dict:
     """Re-label every stored session in the last `days` with the CURRENT thresholds.
 
-    Use after changing the label cutoffs (or the grading blend) so the existing
+    Use after changing the label cutoffs (or the grading method) so the existing
     track record / calibration reflect the new definition instead of the old one.
     yfinance only serves ~60 days of 5-min bars, so older stored outcomes cannot
     be recomputed and are left untouched. One fetch, then grade each trading day.
