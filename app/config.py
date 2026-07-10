@@ -48,8 +48,16 @@ DEFAULTS: dict = {
         "veto_score_multiplier": 0.25,
         "warn_score_multiplier": 0.6,
         "dead_day_range_pct": 0.40, # ATR% below this -> low-opportunity flag
-        "label_directional_er": 0.50,
-        "label_choppy_er": 0.30,
+        # Cutoffs that turn the realized (morning-weighted) 5-min efficiency ratio
+        # into a CHOPPY/MIXED/DIRECTIONAL label. These are calibrated to the 5-MIN
+        # blend scale, NOT the coarser hourly-bar ER the ML bootstrap used: a 5-min
+        # session has ~10x the path of an hourly one, so its ER runs far lower
+        # (60-day blend: median ~0.16, 90th pct ~0.35, max ~0.43). The old 0.50/0.30
+        # were hourly-scale values and graded ~95% of real days CHOPPY with
+        # DIRECTIONAL literally unreachable. At 0.28/0.08 the split is ~22% dir /
+        # 63% mixed / 15% chop, and a clean-morning +0.7% day reads MIXED not CHOPPY.
+        "label_directional_er": 0.28,
+        "label_choppy_er": 0.08,
     },
     # How the post-close grade is measured. A single full-session efficiency ratio
     # punishes a clean morning that round-trips in the afternoon (net close~=open,

@@ -24,7 +24,7 @@ from .config import (
     set_section,
 )
 from .db import init_db
-from .labeling.efficiency import run_labeling
+from .labeling.efficiency import run_labeling, run_regrade
 from .scoring.calibration import calibrate
 from .scoring.engine import run_prediction
 from .scoring.live import live_session
@@ -187,6 +187,15 @@ def run_predict():
 @app.post("/run-label")
 def run_label():
     run_labeling()
+    return RedirectResponse(url="/history", status_code=303)
+
+
+@app.post("/run-regrade")
+def run_regrade_route():
+    # Re-label the recent stored sessions with the current thresholds/blend so the
+    # track record + calibration reflect the live definition (yfinance 5-min data
+    # limits this to ~60 days). Safe to click after changing the label cutoffs.
+    run_regrade()
     return RedirectResponse(url="/history", status_code=303)
 
 

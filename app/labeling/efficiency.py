@@ -73,6 +73,43 @@ def _default_label_date() -> date:
     return prev_trading_day(today)
 
 
+def _session_slice(df, d: date, sess: dict):
+    """The 9:30-16:00 ET 5-min bars for day `d` out of a wider intraday frame."""
+    idx = df.index
+    if idx.tz is None:
+        idx = idx.tz_localize("UTC")
+    et_idx = idx.tz_convert("America/New_York")
+    open_dt, close_dt = session_window(d, sess["open"], sess["close"])
+    return df.loc[(et_idx >= open_dt) & (et_idx <= close_dt)]
+
+
+def _grade_slice(s, d: date, cfg: dict, th: dict) -> dict:
+    """Turn a session slice into the stored outcome dict (does not persist).
+
+    Grades on the morning/afternoon ER blend (see grading config); range stays a
+    full-session "how big was the day" measure, not a directionality claim.
+    """
+    er, morning_er, afternoon_er = blended_session_er(s, d, cfg)
+    session_open = float(s["Open"].astype(float).iloc[0])
+    rng = float(s["High"].astype(float).max() - s["Low"].astype(float).min())
+    range_pct = (rng / session_open * 100.0) if session_open else 0.0
+
+    if er >= th["label_directional_er"]:
+        label = "DIRECTIONAL"
+    elif er <= th["label_choppy_er"]:
+        label = "CHOPPY"
+    else:
+        label = "MIXED"
+
+    return {
+        "date": d.isoformat(), "realized_er": round(er, 3),
+        "morning_er": round(morning_er, 3) if morning_er is not None else None,
+        "afternoon_er": round(afternoon_er, 3) if afternoon_er is not None else None,
+        "realized_range": round(rng, 2), "range_pct": round(range_pct, 3),
+        "realized_label": label, "bars": int(len(s)),
+    }
+
+
 def run_labeling(d: date | None = None) -> dict:
     cfg = get_config()
     d = d or _default_label_date()
@@ -88,40 +125,62 @@ def run_labeling(d: date | None = None) -> dict:
     if df is None or df.empty:
         return {"date": d.isoformat(), "error": "no intraday data"}
 
-    idx = df.index
-    if idx.tz is None:
-        idx = idx.tz_localize("UTC")
-    et_idx = idx.tz_convert("America/New_York")
-    open_dt, close_dt = session_window(d, sess["open"], sess["close"])
-    mask = (et_idx >= open_dt) & (et_idx <= close_dt)
-    s = df.loc[mask]
-
+    s = _session_slice(df, d, sess)
     if len(s) < 5:
         return {"date": d.isoformat(), "error": "session not available yet (need 5-min bars)"}
 
-    # Grade on the morning/afternoon ER blend (see grading config); range stays a
-    # full-session "how big was the day" measure, not a directionality claim.
-    er, morning_er, afternoon_er = blended_session_er(s, d, cfg)
-    session_open = float(s["Open"].astype(float).iloc[0])
-    rng = float(s["High"].astype(float).max() - s["Low"].astype(float).min())
-    range_pct = (rng / session_open * 100.0) if session_open else 0.0
-
-    if er >= th["label_directional_er"]:
-        label = "DIRECTIONAL"
-    elif er <= th["label_choppy_er"]:
-        label = "CHOPPY"
-    else:
-        label = "MIXED"
-
-    result = {
-        "date": d.isoformat(), "realized_er": round(er, 3),
-        "morning_er": round(morning_er, 3) if morning_er is not None else None,
-        "afternoon_er": round(afternoon_er, 3) if afternoon_er is not None else None,
-        "realized_range": round(rng, 2), "range_pct": round(range_pct, 3),
-        "realized_label": label, "bars": int(len(s)),
-    }
+    result = _grade_slice(s, d, cfg, th)
     _store(result)
     return result
+
+
+def run_regrade(days: int = 60) -> dict:
+    """Re-label every stored session in the last `days` with the CURRENT thresholds.
+
+    Use after changing the label cutoffs (or the grading blend) so the existing
+    track record / calibration reflect the new definition instead of the old one.
+    yfinance only serves ~60 days of 5-min bars, so older stored outcomes cannot
+    be recomputed and are left untouched. One fetch, then grade each trading day.
+    """
+    cfg = get_config()
+    sess = cfg["session"]
+    th = cfg["thresholds"]
+    price = get_price_provider()
+    lookback = max(7, min(int(days), 60))
+
+    try:
+        df = price.intraday(cfg["tickers"]["primary"], interval="5m", lookback_days=lookback)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"intraday fetch failed: {exc}", "regraded": []}
+    if df is None or df.empty:
+        return {"error": "no intraday data", "regraded": []}
+
+    idx = df.index
+    if idx.tz is None:
+        idx = idx.tz_localize("UTC")
+    trading_days = sorted({ts.date() for ts in idx.tz_convert("America/New_York")})
+
+    # Only re-label days we ALREADY have an outcome for - re-grade means recompute
+    # the existing track record, not invent labels for days that were never graded.
+    conn = get_conn()
+    try:
+        existing = {row[0] for row in conn.execute("SELECT date FROM outcomes")}
+    finally:
+        conn.close()
+
+    regraded, skipped = [], []
+    for d in trading_days:
+        if not is_trading_day(d) or d.isoformat() not in existing:
+            continue
+        s = _session_slice(df, d, sess)
+        if len(s) < 5:
+            skipped.append(d.isoformat())
+            continue
+        r = _grade_slice(s, d, cfg, th)
+        _store(r)
+        regraded.append({"date": r["date"], "realized_er": r["realized_er"],
+                         "realized_label": r["realized_label"]})
+    return {"regraded": regraded, "skipped": skipped, "days": lookback}
 
 
 def _store(r: dict) -> None:
