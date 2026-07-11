@@ -58,6 +58,7 @@ def serialize_today(pred: dict | None, cfg: dict, cal: dict | None = None) -> di
         "reason": pred.get("reason"),
         "warn_note": pred.get("warn_note"),
         "dead_day": bool(features.get("dead_day")),
+        "calendar_unavailable": bool(features.get("calendar_unavailable")),
         "gauge": {
             "overall": overall_score(pred, cfg, cal),
             "direction_quality": dq,

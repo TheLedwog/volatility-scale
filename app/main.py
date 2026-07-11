@@ -149,6 +149,15 @@ def _startup() -> None:
     except Exception as exc:  # noqa: BLE001
         print(f"[startup] news seed skipped: {exc}")
     try:
+        # Warm the calendar cache so a fresh deploy (empty volume) can serve /calendar
+        # and gate a prediction immediately, instead of waiting for the first scheduled
+        # refresh. No-ops when the cache is already fresh.
+        from .jobs.calendar_refresh import ensure_calendar
+        r = ensure_calendar(get_config())
+        print(f"[startup] calendar cache: {r}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[startup] calendar warm-up skipped: {exc}")
+    try:
         from .scheduler import start_scheduler
         start_scheduler()
     except Exception as exc:  # noqa: BLE001
@@ -188,6 +197,15 @@ def run_predict():
 def run_label():
     run_labeling()
     return RedirectResponse(url="/history", status_code=303)
+
+
+@app.post("/run-calendar-refresh")
+def run_calendar_refresh():
+    # Force an upstream calendar pull (the scheduled job is the normal path). Handy
+    # after a feed outage, or to pick up next week the moment ForexFactory rolls over.
+    from .jobs.calendar_refresh import refresh_calendar
+    refresh_calendar()
+    return RedirectResponse(url="/settings", status_code=303)
 
 
 @app.post("/run-regrade")
@@ -241,11 +259,13 @@ SCORING_MODES = ("auto", "rules", "model")
 def settings_get(request: Request, saved: str | None = None, error: str | None = None):
     cfg = get_config()
     advanced = {k: json.dumps(cfg[k], indent=2) for k in ADVANCED_SECTIONS}
+    from .service.calendar_view import calendar_status
     return templates.TemplateResponse(
         request, "settings.html",
         {
             "cfg": cfg,
             "key_status": openai_key_status(cfg),
+            "calendar_status": calendar_status(cfg),
             "advanced": advanced,
             "models": OPENAI_MODELS,
             "modes": SCORING_MODES,

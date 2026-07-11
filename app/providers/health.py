@@ -64,12 +64,34 @@ def check_price_feed(cfg: dict) -> dict:
 def check_calendar_feed(cfg: dict) -> dict:
     name = cfg.get("providers", {}).get("calendar", "forexfactory")
 
-    def _f():
-        events = get_calendar_provider().events_for(today_et())
-        return f"{len(events)} US events today"
+    def _upstream():
+        events = get_calendar_provider().events_week()
+        return f"{len(events)} US events this week"
 
-    check = _probe("Economic calendar", name, _f)
-    return {"provider": "ForexFactory (calendar / VETO gate)", "ok": check["ok"], "checks": [check]}
+    def _cache():
+        # What the GATE actually reads. The upstream probe can fail (FF rate-limits)
+        # while the gate is still perfectly healthy off a recent cache - and vice versa,
+        # a fresh feed is no use if nothing has written it to the cache.
+        from ..calendar_store import events_for as cached_events_for
+        from ..service.calendar_view import calendar_status
+
+        st = calendar_status(cfg)
+        if st["never_fetched"]:
+            raise ValueError("calendar has never been fetched - the gate cannot see events")
+        n = len(cached_events_for(today_et()))
+        age = st["age_hours"]
+        detail = f"{n} US events today, fetched {age:.1f}h ago"
+        if st["stale"]:
+            raise ValueError(f"cache is stale ({detail})")
+        return detail
+
+    checks = [
+        _probe("Economic calendar (upstream)", name, _upstream, optional=True),
+        _probe("Calendar cache (drives the gate)", "sqlite", _cache),
+    ]
+    required_ok = all(c["ok"] for c in checks if not c["optional"])
+    return {"provider": "ForexFactory (calendar / VETO gate)",
+            "ok": required_ok, "checks": checks}
 
 
 def check_all_feeds(cfg: dict) -> dict:

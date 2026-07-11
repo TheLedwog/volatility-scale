@@ -64,6 +64,39 @@ CREATE TABLE IF NOT EXISTS news_scores (
     headlines_json  TEXT,
     created_at      TEXT
 );
+
+-- The economic calendar, cached. ForexFactory's free feed is rate-limited and only
+-- ever serves the CURRENT week, so we accumulate here instead of re-fetching per use:
+--   * the gate reads this, so a 429/outage falls back to the last-known calendar
+--     rather than an empty list (which used to silently grade an FOMC day CLEAN);
+--   * /api/v1/calendar serves purely from here, so frontend polling costs 0 upstream
+--     calls;
+--   * next week's events land here as soon as FF rolls the feed over, which is what
+--     makes the Friday week-ahead view possible at all.
+-- Keyed by (date, country, title): a re-fetch UPDATES an event whose time or impact
+-- was revised rather than duplicating it.
+CREATE TABLE IF NOT EXISTS calendar_events (
+    date       TEXT NOT NULL,          -- YYYY-MM-DD (ET)
+    country    TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    event_time TEXT,                   -- ISO8601 ET, or NULL for all-day/tentative
+    impact     TEXT,                   -- High | Medium | Low | Holiday | ''
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (date, country, title)
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_events_date ON calendar_events(date);
+
+-- Single-row provenance for the calendar cache: when we last reached FF, and whether
+-- it worked. Drives the `stale` flag the API and the dashboard surface.
+CREATE TABLE IF NOT EXISTS calendar_fetch (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    fetched_at TEXT,                   -- last SUCCESSFUL fetch
+    ok         INTEGER,                -- did the last attempt succeed
+    error      TEXT,                   -- error from the last attempt, if it failed
+    events     INTEGER,                -- events seen in the last successful fetch
+    attempted_at TEXT                  -- last attempt, success or not
+);
 """
 
 

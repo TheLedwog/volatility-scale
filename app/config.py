@@ -91,7 +91,25 @@ DEFAULTS: dict = {
         "min_spearman": 0.05,
         "min_lift": 0.02,
     },
-    "schedule": {"enabled": True, "predict_time": "08:45", "label_time": "16:20"},
+    "schedule": {
+        "enabled": True,
+        # The frozen verdict is cut at the OPEN. It used to run at 08:45, which put it
+        # 15 minutes after the 08:30 data drop - right in the middle of the reaction,
+        # so the overnight/futures factors read a half-digested CPI/NFP spike. At 09:30
+        # the full pre-market reaction is in the bars.
+        "predict_time": "09:30",
+        "label_time": "16:20",
+        # Calendar refreshes run EVERY day, weekends included: FF rolls its one-week
+        # feed over to the new week some time after Friday's close, and the weekend
+        # runs are what pull next week's events in for the week-ahead view.
+        "calendar_refresh_times": ["06:00", "12:00", "18:00", "22:00"],
+    },
+    "calendar": {
+        # Hours before the cached calendar is considered stale. The economic calendar
+        # barely moves intraday, and the feed is rate-limited, so refreshing a handful
+        # of times a day is plenty.
+        "max_age_hours": 12,
+    },
     "providers": {
         "calendar": "forexfactory",
         "llm_provider": "openai",
