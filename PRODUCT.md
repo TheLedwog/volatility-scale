@@ -22,7 +22,8 @@ engine.
    Railway / Render / Fly ── this FastAPI backend
         ├─ /api/v1/*   JSON (API-key auth)
         ├─ Jinja UI    admin/testing (HTTP Basic auth)
-        ├─ APScheduler predict 08:45 ET / label 16:20 ET
+        ├─ APScheduler predict 09:30 ET / label 16:20 ET
+        │              calendar refresh 06:00, 12:00, 18:00, 22:00 ET (every day)
         └─ SQLite on a persistent volume (TRADESCALE_DB)
 ```
 
@@ -33,7 +34,8 @@ All endpoints are GET and require the API key when `API_KEY` is set. Interactive
 
 | Endpoint            | Returns |
 |---------------------|---------|
-| `GET /today`        | Frozen morning verdict: tier, gauge (needle + raw dq + learned discount), news, factors, events. `has_prediction=false` until the day's prediction runs. |
+| `GET /today`        | Frozen verdict, cut at the open: tier, gauge (needle + raw dq + learned discount), news, factors, events. `has_prediction=false` until the day's prediction runs — use `/calendar` before then. |
+| `GET /calendar`     | **The day's events + the tier they imply, from 00:00 ET.** Flips to the week ahead after the week's last session. See below. |
 | `GET /live`         | Live intraday tracker. Poll while `state == "live"`. |
 | `GET /history?limit=` | Recent predictions joined with realized outcomes (raw scores, matching the admin History page). |
 | `GET /accuracy`     | Win-rate / track record over graded sessions. |
@@ -41,6 +43,33 @@ All endpoints are GET and require the API key when `API_KEY` is set. Interactive
 | `GET /health`       | On-demand probe of the scraped feeds (makes live upstream calls). |
 
 `GET /healthz` (no auth, no upstream calls) is a cheap liveness ping for the host.
+
+### `GET /calendar` — the day, hours before the score
+
+The gate is **calendar-only**: whether a day is VETO / WARN / CLEAN needs no price data. So the
+tier is knowable at **00:00 ET**, while the score isn't cut until the open. This endpoint hands the
+frontend the whole day up front — "today is a VETO day, FOMC at 14:00" — and `/today` fills the
+gauge in at 09:30.
+
+Served **entirely from the local cache**, so polling it costs zero upstream calls.
+
+- `mode: "today"` — a normal day; `days` holds one entry.
+- `mode: "week_ahead"` — set once the week's **last session has closed** (Friday after 16:00 ET, and
+  all weekend). `days` holds next week's Mon–Fri, each with its own tier, so the frontend can show
+  "FOMC on Wednesday" over the weekend. Derived from the trading calendar, so a holiday-shortened
+  week flips on Thursday's close instead.
+- `awaiting_feed: true` — week-ahead, but ForexFactory hasn't published the new week yet (see the
+  caveat below). Means "not out yet", **not** "next week is quiet".
+- `calendar: {fetched_at, age_hours, stale, never_fetched, ok, error}` — provenance of the cache.
+
+Each day carries `tier`, `reason` (why VETO), `warn_note` (why WARN), and the enriched `events`
+(`title`, `impact`, `time_str`, `category`, `category_label`, `intra_session`).
+
+**Caveat — ForexFactory's week runs Sunday→Saturday.** Its free feed only ever holds the *current*
+week (there is no `nextweek` feed; it 404s), so on **Friday evening next week does not exist upstream
+yet** — it appears when the feed rolls over on **Sunday**. The Friday/Saturday week-ahead view is
+therefore honest-but-empty (`awaiting_feed: true`) and fills itself in on Sunday, when a weekend
+refresh picks the new week up.
 
 ### Auth & hardening
 - **`API_KEY`** guards `/api/v1/*`. Send `Authorization: Bearer <key>` or `X-API-Key: <key>`.
@@ -71,7 +100,7 @@ All endpoints are GET and require the API key when `API_KEY` is set. Interactive
    `TRADESCALE_DB=/data/tradescale.db`, and optionally `OPENAI_API_KEY`. (`.env.example` lists them.)
 4. First boot: `init_db` runs, the 161-day news cache seeds from the committed
    `data/news_seed.csv`, and the scheduler starts. The first `/today` returns
-   `has_prediction=false` until predict fires (08:45 ET) or you POST `/run-predict` from the
+   `has_prediction=false` until predict fires (09:30 ET) or you POST `/run-predict` from the
    admin UI.
 5. Point the Next.js frontend's server env at the Railway URL + `API_KEY`.
 

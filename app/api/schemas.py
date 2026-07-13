@@ -46,11 +46,53 @@ class TodayResponse(BaseModel):
     reason: str | None = None
     warn_note: str | None = None
     dead_day: bool = False
+    # True when the calendar could not be loaded for this day, so scheduled events were
+    # never checked. A CLEAN tier alongside this means "nothing KNOWN", not "nothing on".
+    calendar_unavailable: bool = False
     gauge: Gauge | None = None
     news: NewsBlock | None = None
     model: ModelInfo | None = None
     factors: list[dict] = []
     events: list[dict] = []
+
+
+class CalendarStatus(BaseModel):
+    """Provenance of the cached calendar - how fresh the events below actually are."""
+    fetched_at: str | None = None    # last SUCCESSFUL upstream fetch
+    attempted_at: str | None = None  # last attempt, success or not
+    ok: bool | None = None           # did the last attempt succeed
+    error: str | None = None
+    age_hours: float | None = None
+    stale: bool
+    never_fetched: bool
+
+
+class CalendarDay(BaseModel):
+    date: str
+    weekday: str
+    is_trading_day: bool
+    tier: str                        # VETO | WARN | CLEAN - the gate, calendar-only
+    reason: str = ""                 # why it's a VETO
+    warn_note: str = ""              # why it's a WARN
+    events: list[dict] = []
+
+
+class CalendarResponse(BaseModel):
+    """The day's (or the week ahead's) economic calendar + the tier it implies.
+
+    Available from 00:00 ET, long before the prediction runs, because the gate needs no
+    price data. `mode` is "today" on a normal day and "week_ahead" once the week's last
+    session has closed (Friday evening + the weekend).
+    """
+    mode: str                        # today | week_ahead
+    generated_at: str
+    today: str
+    calendar: CalendarStatus
+    # week_ahead with no events = ForexFactory hasn't published the new week yet (its
+    # feed only ever holds one week). Distinct from "next week is quiet".
+    awaiting_feed: bool
+    event_count: int
+    days: list[CalendarDay]
 
 
 class LiveResponse(BaseModel):

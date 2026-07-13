@@ -55,6 +55,38 @@
   <div id="data-check-result"></div>
 </div>
 
+<!-- ───────────────────────── Calendar cache ───────────────────────── -->
+<div class="card">
+  <h2>📅 Calendar cache</h2>
+  <p class="muted small">The economic calendar is <b>cached</b>, and the VETO/WARN gate reads the cache —
+    never a live fetch. ForexFactory rate-limits, and a failed fetch returns nothing, which is
+    indistinguishable from “no events scheduled”: that would clear the gate and grade an FOMC day as
+    tradeable. Off the cache, a failed fetch just leaves the last-known calendar in place.</p>
+  <p class="muted small">It refreshes on a schedule (<code>schedule.calendar_refresh_times</code>,
+    every day including weekends — the weekend runs are what pull <b>next week</b> in when ForexFactory
+    rolls its one-week feed over on Sunday). Refresh by hand after an outage, or to grab next week the
+    moment it publishes.</p>
+
+  {% if calendar_status %}
+    {% if calendar_status.never_fetched %}
+      <p class="keystatus bad">✗ Never fetched — the gate cannot see any events. Refresh now.</p>
+    {% elif calendar_status.stale %}
+      <p class="keystatus bad">⚠ Stale — last successful fetch {{ calendar_status.age_hours }}h ago.</p>
+    {% else %}
+      <p class="keystatus good">✓ Fresh — fetched {{ calendar_status.age_hours }}h ago
+        ({{ calendar_status.fetched_at }}).</p>
+    {% endif %}
+    {% if calendar_status.ok is false and calendar_status.error %}
+      <p class="muted small">Last attempt failed: <code>{{ calendar_status.error[:120] }}</code>
+        (the cached calendar is still being used).</p>
+    {% endif %}
+  {% endif %}
+
+  <form method="post" action="/run-calendar-refresh">
+    <button class="btn btn-secondary" type="submit">Refresh calendar now</button>
+  </form>
+</div>
+
 <!-- ───────────────────────── Common settings ───────────────────────── -->
 <form method="post" action="/settings">
   <div class="card">

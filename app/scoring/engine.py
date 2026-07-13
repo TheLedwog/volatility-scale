@@ -6,14 +6,17 @@ from datetime import date
 
 from ..config import get_config
 from ..db import get_conn
+from ..jobs.calendar_refresh import ensure_calendar
 from ..market_calendar import is_trading_day
-from ..providers import get_calendar_provider, get_price_provider
+from ..providers import get_price_provider
+from ..service.calendar_view import gate_events
 from ..timeutils import now_et, today_et
 from .factors import build_context, compute_factors
 from .gate import decide_gate
 
 
-def _verdict(tier: str, dq: int, cfg: dict, dead_day: bool) -> tuple[str, str, bool]:
+def _verdict(tier: str, dq: int, cfg: dict, dead_day: bool,
+             calendar_unavailable: bool = False) -> tuple[str, str, bool]:
     th = cfg["thresholds"]
     if tier == "CLOSED":
         return "Market closed", "No NY session today.", False
@@ -32,6 +35,15 @@ def _verdict(tier: str, dq: int, cfg: dict, dead_day: bool) -> tuple[str, str, b
     if tier == "WARN":
         label = "Caution: " + label
         msg = "Big pre-open data today. " + msg
+
+    # We have no calendar for this day, so the gate never really ran: CLEAN here means
+    # "nothing known", not "nothing scheduled". Refuse to bless the day - an unseen
+    # FOMC would otherwise read as "good to trade".
+    if calendar_unavailable and tier != "VETO":
+        label = "Calendar unavailable - treat as caution"
+        msg = ("The economic calendar could not be loaded, so scheduled events could NOT "
+               "be checked. " + msg)
+        ok = False
     return label, msg, ok
 
 
@@ -61,13 +73,15 @@ def run_prediction(d: date | None = None) -> dict:
         return result
 
     price = get_price_provider()
-    calendar = get_calendar_provider()
 
-    calendar_error = None
-    try:
-        events = calendar.events_for(d)
-    except Exception as exc:  # noqa: BLE001 - degrade if the feed is down
-        events, calendar_error = [], str(exc)
+    # The calendar comes from the CACHE, never a live fetch (app/calendar_store.py).
+    # ForexFactory rate-limits, and a failed fetch used to degrade to an empty event
+    # list - which the gate cannot tell apart from "nothing scheduled", so a 429 on an
+    # FOMC morning graded the day CLEAN. Now: top the cache up if it's stale, then read
+    # it. A fetch failure leaves the last-known calendar in place and the VETO stands.
+    refresh = ensure_calendar(cfg, d)
+    events, calendar_unavailable = gate_events(cfg, d)
+    calendar_error = None if refresh.get("ok") else refresh.get("error")
 
     gate = decide_gate(events, cfg, d)
 
@@ -106,7 +120,7 @@ def run_prediction(d: date | None = None) -> dict:
 
     tier = gate["tier"]
     dq = f["direction_quality"]
-    label, msg, ok = _verdict(tier, dq, cfg, f["dead_day"])
+    label, msg, ok = _verdict(tier, dq, cfg, f["dead_day"], calendar_unavailable)
 
     # The event category that set the tier - drives per-category discount learning.
     tier_events = gate.get("veto_events") if tier == "VETO" else gate.get("warn_events")
@@ -124,6 +138,7 @@ def run_prediction(d: date | None = None) -> dict:
         "atr_pct": f["atr_pct"],
         "events": _serializable_events(gate["events"]),
         "calendar_error": calendar_error,
+        "calendar_unavailable": calendar_unavailable,
         "news": news_assessment,
     }
 
@@ -141,6 +156,7 @@ def run_prediction(d: date | None = None) -> dict:
         "trade_ok": ok,
         "message": msg,
         "calendar_error": calendar_error,
+        "calendar_unavailable": calendar_unavailable,
     }
     _store(result, created_at, features)
     return result

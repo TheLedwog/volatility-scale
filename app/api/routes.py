@@ -12,6 +12,7 @@ from ..config import get_config
 from ..providers.health import check_all_feeds
 from ..scoring.calibration import calibrate
 from ..scoring.live import live_session
+from ..service.calendar_view import calendar_payload
 from ..store import accuracy_summary, latest_prediction, prediction_for, recent_history
 from ..timeutils import today_et
 from . import schemas, serializers
@@ -22,10 +23,24 @@ router = APIRouter(prefix="/api/v1", tags=["v1"], dependencies=[Depends(require_
 
 @router.get("/today", response_model=schemas.TodayResponse)
 def today():
-    """The frozen morning verdict (the hero card). `has_prediction` is false until
-    the day's prediction has run."""
+    """The frozen verdict, cut at the open (the hero card). `has_prediction` is false
+    until the day's prediction has run - use /calendar for the events before then."""
     cfg = get_config()
     return serializers.serialize_today(latest_prediction(), cfg)
+
+
+@router.get("/calendar", response_model=schemas.CalendarResponse)
+def calendar():
+    """The day's economic calendar and the tier it implies - available from 00:00 ET.
+
+    The gate is calendar-only, so the VETO/WARN/CLEAN call needs no price data and lands
+    hours before the score does. Served entirely from the local cache, so polling this
+    costs no upstream calls.
+
+    After the week's last session closes (Friday evening, and the weekend) it flips to
+    `mode: "week_ahead"` and lists next week's sessions instead of today's.
+    """
+    return calendar_payload(get_config())
 
 
 @router.get("/live", response_model=schemas.LiveResponse)

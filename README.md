@@ -51,9 +51,26 @@ python -m app.jobs.label       # label the most recent completed session
 ```
 
 The built-in scheduler (APScheduler) runs these automatically at the times set in
-Settings (default 08:45 ET predict, 16:20 ET label) while `run.py` is running.
-On a Raspberry Pi you can instead disable the scheduler and use cron / systemd
-timers to call the two job commands above.
+Settings while `run.py` is running:
+
+| Job | Default | Days |
+|-----|---------|------|
+| predict | **09:30 ET** (the open) | Mon–Fri |
+| label   | 16:20 ET | Mon–Fri |
+| calendar refresh | 06:00, 12:00, 18:00, 22:00 ET | **every day** |
+
+Predict runs at the **open**, not before it. It used to run at 08:45, which put it 15 minutes into
+the 08:30 data reaction — so the overnight/futures factors read a half-digested CPI/NFP spike. At
+09:30 the whole pre-market move is in the bars.
+
+The calendar refresh is the **only** thing that fetches ForexFactory; everything else (the VETO gate,
+`/api/v1/calendar`, the dashboard) reads a SQLite cache. That feed is rate-limited and a failed fetch
+returns nothing — which is indistinguishable from "no events scheduled" and would silently clear the
+gate on an FOMC day. It runs at weekends too, because ForexFactory's one-week feed only rolls over to
+the new week on Sunday, and those runs are what pull next week's events in.
+
+On a Raspberry Pi you can instead disable the scheduler and use cron / systemd timers to call the job
+commands above.
 
 ## Training the model (Phase 3)
 

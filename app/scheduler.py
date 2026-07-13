@@ -25,6 +25,16 @@ def _safe_label():
         print(f"[scheduler] label failed: {exc}")
 
 
+def _safe_calendar():
+    try:
+        from .jobs.calendar_refresh import refresh_calendar
+        r = refresh_calendar()
+        if not r.get("ok"):
+            print(f"[scheduler] calendar refresh failed: {r.get('error')}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[scheduler] calendar refresh failed: {exc}")
+
+
 def start_scheduler():
     global _scheduler
     cfg = get_config()
@@ -38,8 +48,9 @@ def start_scheduler():
         print(f"[scheduler] APScheduler unavailable, skipping: {exc}")
         return None
 
-    predict_t = parse_hhmm(sch_cfg.get("predict_time", "08:45"))
+    predict_t = parse_hhmm(sch_cfg.get("predict_time", "09:30"))
     label_t = parse_hhmm(sch_cfg.get("label_time", "16:20"))
+    cal_times = sch_cfg.get("calendar_refresh_times") or ["06:00", "12:00", "18:00", "22:00"]
 
     _scheduler = BackgroundScheduler(timezone=ET)
     _scheduler.add_job(
@@ -52,6 +63,21 @@ def start_scheduler():
                                  hour=label_t.hour, minute=label_t.minute, timezone=ET),
         id="label", replace_existing=True,
     )
+    # Every day, not mon-fri: the weekend runs catch FF's rollover to the new week,
+    # which is the only way next week's events ever reach the cache.
+    for i, raw in enumerate(cal_times):
+        try:
+            t = parse_hhmm(raw)
+        except Exception:  # noqa: BLE001 - a bad time in Settings shouldn't kill the app
+            print(f"[scheduler] bad calendar_refresh_time {raw!r}, skipped")
+            continue
+        _scheduler.add_job(
+            _safe_calendar,
+            CronTrigger(hour=t.hour, minute=t.minute, timezone=ET),
+            id=f"calendar_{i}", replace_existing=True,
+        )
+
     _scheduler.start()
-    print(f"[scheduler] started - predict {predict_t:%H:%M} ET, label {label_t:%H:%M} ET")
+    print(f"[scheduler] started - predict {predict_t:%H:%M} ET, label {label_t:%H:%M} ET, "
+          f"calendar {', '.join(cal_times)} ET (daily)")
     return _scheduler

@@ -93,8 +93,10 @@ Today: "any red folder ⇒ don't trade." Two upgrades:
 
 ## 3. The learning loop
 
-1. **Pre-open job (~1 hr before 9:30 ET):** build features → score → store the
-   prediction + every feature in the DB.
+1. **Predict job (09:30 ET, the open):** build features → score → store the
+   prediction + every feature in the DB. (The *gate* — VETO/WARN/CLEAN — is calendar-only
+   and so is known from 00:00 ET; only the score waits for the open. `GET /api/v1/calendar`
+   serves the gate early.)
 2. **Post-close job (after 16:00 ET):** compute the realized label (ER/ADX/range)
    → store outcome.
 3. **Compare** prediction vs. reality → log error → update accuracy dashboard.
