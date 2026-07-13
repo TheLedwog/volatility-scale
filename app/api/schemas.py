@@ -111,7 +111,8 @@ class LiveResponse(BaseModel):
 class HistoryRow(BaseModel):
     date: str
     tier: str
-    direction_quality: int | None = None
+    direction_quality: int | None = None   # raw score, before the gate discount
+    overall: int | None = None             # score the gauge showed (gate folded in)
     verdict: str | None = None
     reason: str | None = None
     realized_er: float | None = None

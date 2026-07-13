@@ -5,6 +5,8 @@ import json
 
 from .config import get_config
 from .db import get_conn, init_db
+from .scoring.calibration import calibrate
+from .service.verdict import overall_score
 
 
 def _row_to_pred(row) -> dict:
@@ -46,7 +48,7 @@ def recent_history(limit: int = 40) -> list[dict]:
         rows = conn.execute(
             """
             SELECT p.date, p.tier, p.direction_quality, p.verdict, p.reason,
-                   o.realized_er, o.realized_label, o.range_pct
+                   p.features_json, o.realized_er, o.realized_label, o.range_pct
             FROM predictions p
             LEFT JOIN outcomes o ON o.date = p.date
             ORDER BY p.date DESC
@@ -54,9 +56,27 @@ def recent_history(limit: int = 40) -> list[dict]:
             """,
             (limit,),
         ).fetchall()
-        return [dict(r) for r in rows]
     finally:
         conn.close()
+
+    # `overall` is the score the gauge actually SHOWED that day: direction_quality
+    # with the VETO/WARN discount folded in (unchanged for CLEAN days). Computed here
+    # so history reproduces the real needle for gated days, not just the raw score.
+    cfg = get_config()
+    cal = calibrate(cfg)
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            features = json.loads(d.pop("features_json") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            d.pop("features_json", None)
+            features = {}
+        pred = {"tier": d["tier"], "direction_quality": d["direction_quality"],
+                "features": features}
+        d["overall"] = overall_score(pred, cfg, cal)
+        out.append(d)
+    return out
 
 
 def latest_model() -> dict | None:
