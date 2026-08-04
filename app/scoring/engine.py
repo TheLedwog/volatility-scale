@@ -11,6 +11,7 @@ from ..market_calendar import is_trading_day
 from ..providers import get_price_provider
 from ..service.calendar_view import gate_events
 from ..timeutils import now_et, today_et
+from .calibration import frozen_multiplier
 from .factors import build_context, compute_factors
 from .gate import decide_gate
 
@@ -126,6 +127,12 @@ def run_prediction(d: date | None = None) -> dict:
     tier_events = gate.get("veto_events") if tier == "VETO" else gate.get("warn_events")
     primary_category = tier_events[0]["category"] if tier_events else None
 
+    # Freeze the gate discount the gauge will show, learned from the sessions graded
+    # BEFORE today. Calibration keeps updating as later days are labelled, so deriving
+    # this at render time made a day's score drift after the fact - and once the day
+    # was graded, its own outcome fed the multiplier applied to it.
+    gate_multiplier = frozen_multiplier(cfg, tier, primary_category, d.isoformat())
+
     features = {
         "factors": f["factors"],
         "breakdown_kind": f.get("breakdown_kind", "rules"),
@@ -134,6 +141,7 @@ def run_prediction(d: date | None = None) -> dict:
         "model_note": model_note,
         "gate_tier": tier,
         "gate_primary_category": primary_category,
+        "gate_multiplier": round(gate_multiplier, 4),
         "dead_day": f["dead_day"],
         "atr_pct": f["atr_pct"],
         "events": _serializable_events(gate["events"]),

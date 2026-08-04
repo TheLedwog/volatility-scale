@@ -149,6 +149,16 @@ def _startup() -> None:
     except Exception as exc:  # noqa: BLE001
         print(f"[startup] news seed skipped: {exc}")
     try:
+        # One-off per row: stamp the as-of gate multiplier onto predictions stored
+        # before it was frozen, so history replays the score each day actually showed
+        # instead of re-deriving it from calibration that has since moved on.
+        from .scoring.calibration import backfill_gate_multipliers
+        n = backfill_gate_multipliers(get_config())
+        if n:
+            print(f"[startup] stamped gate multiplier on {n} stored predictions")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[startup] gate-multiplier backfill skipped: {exc}")
+    try:
         # Warm the calendar cache so a fresh deploy (empty volume) can serve /calendar
         # and gate a prediction immediately, instead of waiting for the first scheduled
         # refresh. No-ops when the cache is already fresh.

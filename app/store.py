@@ -41,6 +41,23 @@ def prediction_for(date_str: str) -> dict | None:
         conn.close()
 
 
+def realized_er_for(date_str: str) -> float | None:
+    """The graded 5-min efficiency ratio for one session, if it has been labelled.
+
+    Lets the prior-day factor use the same measurement the labeler grades against
+    instead of a daily O/H/L/C proxy of it.
+    """
+    init_db()
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT realized_er FROM outcomes WHERE date=?", (date_str,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return float(row["realized_er"]) if row and row["realized_er"] is not None else None
+
+
 def recent_history(limit: int = 40) -> list[dict]:
     init_db()
     conn = get_conn()
