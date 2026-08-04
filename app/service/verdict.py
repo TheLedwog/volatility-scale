@@ -41,12 +41,22 @@ def tier_multiplier(pred: dict, cfg: dict, cal: dict | None = None) -> tuple[flo
     """The learned discount applied to the gauge for this day, plus its category.
 
     Returns (1.0, None) for CLEAN/CLOSED days where the gate does not discount.
+
+    The multiplier is FROZEN onto the prediction at predict time (engine.py) from
+    the sessions graded before it. Reading it back - rather than recomputing from
+    current calibration - is what stops a day's gauge from moving after the fact,
+    and stops a graded day from feeding the multiplier applied to itself. Rows
+    written before freezing existed fall back to a live computation.
     """
     tier = pred.get("tier")
     if tier not in ("VETO", "WARN"):
         return 1.0, None
+    features = pred.get("features") or {}
+    category = day_category(features, tier, cfg)
+    stored = features.get("gate_multiplier")
+    if isinstance(stored, (int, float)) and not isinstance(stored, bool):
+        return float(stored), category
     cal = cal or calibrate(cfg)
-    category = day_category(pred.get("features") or {}, tier, cfg)
     return resolve_multiplier(cal, cfg, tier, category), category
 
 

@@ -87,19 +87,26 @@ def day_category(features: dict, tier: str, cfg: dict) -> str | None:
     return None
 
 
-def _labeled_rows() -> list[tuple]:
-    """(tier, features, realized_er, realized_label) for every labelled session."""
+def _labeled_rows(as_of: str | None = None) -> list[tuple]:
+    """(tier, features, realized_er, realized_label) for every labelled session.
+
+    `as_of` (YYYY-MM-DD) restricts the view to sessions graded strictly BEFORE that
+    date - what the tool could actually have known on the morning of `as_of`.
+    """
     init_db()
     conn = get_conn()
+    sql = """
+        SELECT p.tier AS tier, p.features_json AS fj,
+               o.realized_er AS er, o.realized_label AS lab
+        FROM predictions p JOIN outcomes o ON o.date = p.date
+        WHERE o.realized_er IS NOT NULL
+    """
+    params: tuple = ()
+    if as_of:
+        sql += " AND p.date < ?"
+        params = (as_of,)
     try:
-        rows = conn.execute(
-            """
-            SELECT p.tier AS tier, p.features_json AS fj,
-                   o.realized_er AS er, o.realized_label AS lab
-            FROM predictions p JOIN outcomes o ON o.date = p.date
-            WHERE o.realized_er IS NOT NULL
-            """
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     finally:
         conn.close()
     out = []
@@ -112,15 +119,20 @@ def _labeled_rows() -> list[tuple]:
     return out
 
 
-def calibrate(cfg: dict | None = None) -> dict:
-    """Compute the learned tier/category multipliers + supporting stats for the UI."""
+def calibrate(cfg: dict | None = None, as_of: str | None = None) -> dict:
+    """Compute the learned tier/category multipliers + supporting stats for the UI.
+
+    Pass `as_of` (a session date) to learn only from sessions graded before it. The
+    gauge freezes its multiplier this way, so a day's score can never be derived
+    from that day's own outcome.
+    """
     cfg = cfg or get_config()
     cc = {**CALIB_DEFAULTS, **(cfg.get("calibration") or {})}
     k = float(cc["pseudocount"])
     floor, ceil = float(cc["multiplier_floor"]), float(cc["multiplier_ceiling"])
     min_base, cat_min = int(cc["min_baseline_days"]), int(cc["category_min_samples"])
 
-    rows = _labeled_rows()
+    rows = _labeled_rows(as_of)
     clean = [er for (t, _f, er, _l) in rows if t == "CLEAN" and er is not None]
     baseline = (sum(clean) / len(clean)) if clean else None
     ready = bool(cc["enabled"] and baseline and baseline > 0.01 and len(clean) >= min_base)
@@ -165,6 +177,55 @@ def calibrate(cfg: dict | None = None) -> dict:
             "categories": cats,
         }
     return out
+
+
+def frozen_multiplier(cfg: dict, tier: str, category: str | None, date_str: str) -> float:
+    """The multiplier to STORE on a prediction: resolved from prior sessions only."""
+    if tier not in ("VETO", "WARN"):  # no gate, no calibration read
+        return 1.0
+    return resolve_multiplier(calibrate(cfg, as_of=date_str), cfg, tier, category)
+
+
+def backfill_gate_multipliers(cfg: dict | None = None) -> int:
+    """Stamp the as-of multiplier onto stored predictions written before it was frozen.
+
+    Those rows carry no `gate_multiplier`, so the gauge re-derived one from TODAY's
+    calibration every time they were rendered: a day's displayed score drifted after
+    the fact, and once the day itself was graded its own outcome fed the multiplier
+    applied to it (one ISM day scoring 62 x 1.5 = 93 under a DON'T TRADE verdict).
+    Replay each row against only the sessions graded before it and store the result.
+
+    Idempotent - rows already carrying a multiplier are skipped, so this is safe to
+    run on every startup. Returns the number of rows stamped.
+    """
+    cfg = cfg or get_config()
+    init_db()
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT date, tier, features_json FROM predictions ORDER BY date"
+        ).fetchall()
+        stamped = 0
+        for r in rows:
+            try:
+                features = json.loads(r["features_json"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(features, dict) or "gate_multiplier" in features:
+                continue
+            tier = r["tier"]
+            category = day_category(features, tier, cfg) if tier in ("VETO", "WARN") else None
+            features["gate_multiplier"] = round(
+                frozen_multiplier(cfg, tier, category, r["date"]), 4)
+            conn.execute(
+                "UPDATE predictions SET features_json=? WHERE date=?",
+                (json.dumps(features, default=str), r["date"]),
+            )
+            stamped += 1
+        conn.commit()
+        return stamped
+    finally:
+        conn.close()
 
 
 def resolve_multiplier(cal: dict, cfg: dict, tier: str, category: str | None) -> float:
