@@ -225,10 +225,27 @@ def openai_api_key(cfg: dict | None = None) -> str:
     return os.environ.get("OPENAI_API_KEY") or cfg.get("providers", {}).get("openai_api_key", "") or ""
 
 
+def _webz_token(raw: str) -> str:
+    """Accept a bare token OR the ready-made endpoint URL the Webz dashboard shows.
+
+    The dashboard hands you a full filterWebContent URL with the token already in
+    its query string, so that URL is what people actually have; asking them to
+    dissect it by hand is just an opportunity to paste the wrong half. Any query
+    baked into that URL is ignored - we build our own `q` from news.webz_query.
+    """
+    raw = (raw or "").strip().strip('"').strip("'")
+    if "token=" not in raw:
+        return raw
+    from urllib.parse import parse_qs, urlparse
+
+    return (parse_qs(urlparse(raw).query).get("token") or [""])[0].strip()
+
+
 def webz_api_key(cfg: dict | None = None) -> str:
     """Resolve the Webz.io token: WEBZ_API_KEY env var first, then stored config."""
     cfg = cfg or get_config()
-    return os.environ.get("WEBZ_API_KEY") or cfg.get("providers", {}).get("webz_api_key", "") or ""
+    raw = os.environ.get("WEBZ_API_KEY") or cfg.get("providers", {}).get("webz_api_key", "") or ""
+    return _webz_token(raw)
 
 
 def openai_key_status(cfg: dict | None = None) -> dict:
