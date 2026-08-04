@@ -128,18 +128,66 @@ DEFAULTS: dict = {
         "openai_api_key": "",
         "openai_model": "gpt-5.6-luna",
         "news_api_key": "",
+        "webz_api_key": "",
     },
     "news": {
         "enabled": True,            # fetch headlines; GPT read needs an OpenAI key
-        "provider": "gdelt",
+        # Feeds are tried in order; the first to return headlines wins (chain built in
+        # app/providers/__init__.py). GDELT leads because it classifies by GKG THEME
+        # rather than title keywords, so it surfaces the actual catalysts - Fed
+        # leadership, policy shifts, geopolitics - that a keyword query can only find
+        # if you already knew the name to search for. Webz backs it up because it is
+        # token-authenticated: GDELT rate-limits by IP and a deployed host shares its
+        # IP reputation with every other tenant, which is what blanked the factor on
+        # 2026-08-04. Each feed covers the other's actual weakness.
+        "provider_chain": ["gdelt", "webz"],
+        "provider": "gdelt",   # legacy single-feed key, used if provider_chain is unset
         "max_headlines": 25,
         # Relevance sort + GDELT GKG *theme* filters (not loose keyword OR over full
         # article text, which pulled newest-anything junk like celebrity/gadget stories).
         "sort": "hybridrel",
         "require_finance_terms": True,  # drop any headline whose title isn't market-related
         "extra_finance_terms": [],      # optional extra keep-terms (e.g. specific tickers)
+        # sourcecountry:US is doing real work. The themes are global, so without it the
+        # feed returned mostly South Korean inflation, RBI policy and Indian bank
+        # shares - markets that don't trade in the NY session - and the GPT read
+        # averages over every headline, so that ballast dragged the assessment. With
+        # it, the same slot returned Warsh floating fewer Fed meetings, JPMorgan on his
+        # press conference, Williams on inflation: actual catalysts for THIS session.
         "query": ('(theme:ECON_STOCKMARKET OR theme:ECON_INTEREST_RATE OR '
-                  'theme:ECON_INFLATION OR theme:ECON_CENTRALBANK) sourcelang:eng'),
+                  'theme:ECON_INFLATION OR theme:ECON_CENTRALBANK) '
+                  'sourcelang:eng sourcecountry:US'),
+        # --- Webz.io ---------------------------------------------------------------
+        # Elasticsearch boolean syntax. Filtering at SOURCE on title terms + finance
+        # sites is the point: GDELT's theme query returned globally-themed noise (four
+        # RBI rate stories, Turkish CPI, German retail sales) that the local relevance
+        # net can only trim, never replace, so the GPT read was fed whatever survived.
+        # Sorted by relevancy, NOT recency: sorting by crawl time surfaces the
+        # algorithmic press-release mills (watchlistnews, financialcontent) that
+        # publish constantly, while relevancy surfaces actual market coverage. The
+        # exclusions drop evergreen retail listicles ("3 Stocks Worth Your
+        # Attention", "Best high-yield savings rates") which pass a finance keyword
+        # filter but say nothing about how today will trade.
+        "webz_query": (
+            'title:("stock market" OR "Wall Street" OR "Federal Reserve" OR FOMC OR '
+            'Powell OR inflation OR CPI OR "interest rate" OR "rate cut" OR "rate hike" OR '
+            'tariffs OR recession OR "S&P 500" OR Nasdaq OR Treasury OR yields OR '
+            'payrolls OR jobs) '
+            'language:english site_category:financial_news '
+            '-title:("Worth Your Attention" OR "high-yield savings" OR "Should You Buy" OR '
+            '"Best CD" OR "Prediction" OR "Reasons to" OR "Better Buy" OR "Options Volume" OR '
+            '"Reaffirms" OR "Price Target" OR "Shares Sold" OR "Stake")'
+        ),
+        "webz_sort": "relevancy",
+        # Free tier serves 10 results/call, so a headline set is paginated. This caps
+        # the pages one fetch will pull - the quota is 500 calls/month and a trading
+        # month is ~21 days, so 3 keeps a wide margin.
+        "webz_max_calls": 3,
+        "webz_page_size": 10,
+        # Shared by both feeds: retry the transient statuses (429 especially) before
+        # giving up on a factor worth 25% of the weight.
+        "fetch_retries": 3,
+        "fetch_retry_backoff_sec": 2.0,
     },
 }
 
@@ -199,6 +247,29 @@ def openai_api_key(cfg: dict | None = None) -> str:
     """
     cfg = cfg or get_config()
     return os.environ.get("OPENAI_API_KEY") or cfg.get("providers", {}).get("openai_api_key", "") or ""
+
+
+def _webz_token(raw: str) -> str:
+    """Accept a bare token OR the ready-made endpoint URL the Webz dashboard shows.
+
+    The dashboard hands you a full filterWebContent URL with the token already in
+    its query string, so that URL is what people actually have; asking them to
+    dissect it by hand is just an opportunity to paste the wrong half. Any query
+    baked into that URL is ignored - we build our own `q` from news.webz_query.
+    """
+    raw = (raw or "").strip().strip('"').strip("'")
+    if "token=" not in raw:
+        return raw
+    from urllib.parse import parse_qs, urlparse
+
+    return (parse_qs(urlparse(raw).query).get("token") or [""])[0].strip()
+
+
+def webz_api_key(cfg: dict | None = None) -> str:
+    """Resolve the Webz.io token: WEBZ_API_KEY env var first, then stored config."""
+    cfg = cfg or get_config()
+    raw = os.environ.get("WEBZ_API_KEY") or cfg.get("providers", {}).get("webz_api_key", "") or ""
+    return _webz_token(raw)
 
 
 def openai_key_status(cfg: dict | None = None) -> dict:

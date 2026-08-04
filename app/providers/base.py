@@ -76,6 +76,38 @@ class NewsProvider(ABC):
     def headlines(self, d: date) -> list[str]: ...
 
 
+class FallbackNewsProvider(NewsProvider):
+    """Try each provider in order; first one to return headlines wins.
+
+    A single feed is a single point of failure for 25% of the scoring weight, and
+    the failure is silent - no headlines means the LLM is never called and the
+    factor just drops out of the blend. So the primary feed degrades to the backup
+    rather than to nothing.
+
+    If they all fail, raise with every reason attached: the card reports the fetch
+    error, and "no headlines fetched (...)" is only useful if it says why.
+    """
+
+    def __init__(self, providers: list[NewsProvider]):
+        self.providers = providers
+        self.last_source: Optional[str] = None
+
+    def headlines(self, d: date) -> list[str]:
+        problems = []
+        for p in self.providers:
+            name = getattr(p, "name", type(p).__name__)
+            try:
+                found = p.headlines(d)
+            except Exception as exc:  # noqa: BLE001 - try the next feed
+                problems.append(f"{name}: {exc}")
+                continue
+            if found:
+                self.last_source = name
+                return found
+            problems.append(f"{name}: no headlines")
+        raise RuntimeError("; ".join(problems) or "no news providers configured")
+
+
 class LLMProvider(ABC):
     @abstractmethod
     def score_news(self, headlines: list[str], cfg: dict) -> dict:
