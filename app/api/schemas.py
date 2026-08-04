@@ -125,10 +125,25 @@ class HistoryResponse(BaseModel):
     rows: list[HistoryRow]
 
 
+class BasisStats(BaseModel):
+    """Win rates for one scoring basis (see AccuracyResponse.basis)."""
+    go_n: int
+    go_win_rate: float | None = None
+    avoid_n: int
+    avoid_hit_rate: float | None = None
+    overall_n: int
+    overall_win_rate: float | None = None
+    avg_er_good: float | None = None
+    avg_er_avoid: float | None = None
+
+
 class AccuracyResponse(BaseModel):
     samples: int
     good_threshold: int
     caution_threshold: int
+    # Which number the headline rates grade. "overall" = the score the gauge showed,
+    # gate folded in, gated days included - what a user actually acts on.
+    basis: str = "overall"
     avg_er_good: float | None = None
     avg_er_avoid: float | None = None
     veto_days: int
@@ -139,6 +154,8 @@ class AccuracyResponse(BaseModel):
     avoid_hit_rate: float | None = None
     overall_n: int
     overall_win_rate: float | None = None
+    # Same rates on the raw pre-gate score, for comparing the two bases.
+    raw_score: BasisStats | None = None
 
 
 class HealthResponse(BaseModel):

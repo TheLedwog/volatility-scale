@@ -31,9 +31,16 @@
   </div>
   <p class="muted small">A decisive call = a GO (score &ge; {{ acc.good_threshold }}) or an AVOID
     (score &lt; {{ acc.caution_threshold }}); "correct" means a GO day trended or an AVOID day chopped.
-    The middle "be selective" band isn't scored. Avg realized efficiency: GO
+    The middle "be selective" band isn't scored. Graded on the score the gauge SHOWED
+    (gate folded in), including gated days — the number a user actually acts on.
+    Avg realized efficiency: GO
     {{ acc.avg_er_good if acc.avg_er_good is not none else '—' }} vs AVOID
-    {{ acc.avg_er_avoid if acc.avg_er_avoid is not none else '—' }} (bigger gap = cleaner separation).</p>
+    {{ acc.avg_er_avoid if acc.avg_er_avoid is not none else '—' }} (bigger gap = cleaner separation).
+    {% if acc.raw_score and acc.raw_score.overall_win_rate is not none %}
+    <br>Same calls on the RAW score with the gate left out:
+    <b>{{ (acc.raw_score.overall_win_rate*100)|round|int }}%</b>
+    over {{ acc.raw_score.overall_n }} — folding the gate in is only earning its keep
+    while the number above beats this one.{% endif %}</p>
 </div>
 
 <div class="card">
