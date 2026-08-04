@@ -114,7 +114,7 @@ DEFAULTS: dict = {
         "calendar": "forexfactory",
         "llm_provider": "openai",
         "openai_api_key": "",
-        "openai_model": "gpt-4o-mini",
+        "openai_model": "gpt-5.6-luna",
         "news_api_key": "",
     },
     "news": {
