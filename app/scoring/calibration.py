@@ -31,7 +31,7 @@ CALIB_DEFAULTS = {
     "enabled": True,
     "pseudocount": 6,          # shrinkage strength: higher trusts the prior for longer
     "min_baseline_days": 5,    # need this many labelled CLEAN days before trusting the learned discount
-    "category_min_samples": 3, # show a per-category row on History once it has this many days
+    "category_min_samples": 3, # days a category needs before its OWN multiplier is used
     "multiplier_floor": 0.05,  # noise guards (NOT a red-cap; pure-data can exceed the caution line)
     "multiplier_ceiling": 1.5,
 }
@@ -229,12 +229,22 @@ def backfill_gate_multipliers(cfg: dict | None = None) -> int:
 
 
 def resolve_multiplier(cal: dict, cfg: dict, tier: str, category: str | None) -> float:
-    """The multiplier to apply for a given day: category -> pooled tier -> prior."""
+    """The multiplier to apply for a given day: category -> pooled tier -> prior.
+
+    A category has to EARN its own multiplier: until it has `category_min_samples`
+    graded days it scores off the pooled tier estimate instead. One ISM day that
+    happened to trend hard otherwise sets that category's multiplier by itself -
+    a single sample produced a raw 5.19x, which the ceiling then clamped to 1.5,
+    so the gauge was showing the clamp constant rather than anything learned.
+    Shrinkage alone doesn't save you here: it pulls a thin estimate toward the
+    pooled value but still lets one outlier drag it a long way.
+    """
     if tier not in ("VETO", "WARN"):
         return 1.0
     if not cal.get("ready"):
         return _prior(cfg, tier)
     t = cal["tiers"][tier]
-    if category and category in t["categories"]:
-        return t["categories"][category]["m"]
+    cat = t["categories"].get(category) if category else None
+    if cat and cat["n"] >= int(cal.get("category_min_samples", 3)):
+        return cat["m"]
     return t["pooled_m"]
