@@ -40,6 +40,7 @@ class WebzNewsProvider(NewsProvider):
         self.max_headlines = int(n.get("max_headlines", 25))
         self.max_calls = max(1, int(n.get("webz_max_calls", 3)))
         self.page_size = max(1, int(n.get("webz_page_size", 10)))
+        self.sort = n.get("webz_sort", "relevancy")
         self.require_finance = bool(n.get("require_finance_terms", True))
         self.extra_terms = n.get("extra_finance_terms", [])
         self.timeout = timeout
@@ -69,7 +70,7 @@ class WebzNewsProvider(NewsProvider):
             "format": "json",
             "q": self.query,
             "ts": int(start.timestamp() * 1000),
-            "sort": "relevancy",
+            "sort": self.sort,
             "size": self.page_size,
         }
 

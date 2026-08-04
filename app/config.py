@@ -148,13 +148,23 @@ DEFAULTS: dict = {
         # sites is the point: GDELT's theme query returned globally-themed noise (four
         # RBI rate stories, Turkish CPI, German retail sales) that the local relevance
         # net can only trim, never replace, so the GPT read was fed whatever survived.
+        # Sorted by relevancy, NOT recency: sorting by crawl time surfaces the
+        # algorithmic press-release mills (watchlistnews, financialcontent) that
+        # publish constantly, while relevancy surfaces actual market coverage. The
+        # exclusions drop evergreen retail listicles ("3 Stocks Worth Your
+        # Attention", "Best high-yield savings rates") which pass a finance keyword
+        # filter but say nothing about how today will trade.
         "webz_query": (
-            'title:("stock market" OR stocks OR "Wall Street" OR "Federal Reserve" OR '
-            'FOMC OR Powell OR inflation OR CPI OR "interest rate" OR "rate cut" OR '
-            '"rate hike" OR tariffs OR recession OR "S&P 500" OR Nasdaq OR Treasury OR '
-            'yields OR earnings OR jobs OR payrolls) '
-            'language:english site_category:financial_news'
+            'title:("stock market" OR "Wall Street" OR "Federal Reserve" OR FOMC OR '
+            'Powell OR inflation OR CPI OR "interest rate" OR "rate cut" OR "rate hike" OR '
+            'tariffs OR recession OR "S&P 500" OR Nasdaq OR Treasury OR yields OR '
+            'payrolls OR jobs) '
+            'language:english site_category:financial_news '
+            '-title:("Worth Your Attention" OR "high-yield savings" OR "Should You Buy" OR '
+            '"Best CD" OR "Prediction" OR "Reasons to" OR "Better Buy" OR "Options Volume" OR '
+            '"Reaffirms" OR "Price Target" OR "Shares Sold" OR "Stake")'
         ),
+        "webz_sort": "relevancy",
         # Free tier serves 10 results/call, so a headline set is paginated. This caps
         # the pages one fetch will pull - the quota is 500 calls/month and a trading
         # month is ~21 days, so 3 keeps a wide margin.
