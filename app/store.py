@@ -115,13 +115,43 @@ def latest_model() -> dict | None:
         conn.close()
 
 
+def _decisive_stats(scored: list[tuple[int, dict]], good: int, caution: int) -> dict:
+    """Win rates for one scoring basis, given (score, row) pairs.
+
+    A GO call (score >= good) is correct when the day trended (DIRECTIONAL); an
+    AVOID call (score < caution) is correct when it chopped (CHOPPY). The middle
+    "be selective" band is not a call, so it isn't counted either way.
+    """
+    go = [r for (s, r) in scored if s >= good]
+    avoid = [r for (s, r) in scored if s < caution]
+    go_hits = sum(1 for r in go if r["realized_label"] == "DIRECTIONAL")
+    avoid_hits = sum(1 for r in avoid if r["realized_label"] == "CHOPPY")
+    decisive = len(go) + len(avoid)
+    return {
+        "go_n": len(go),
+        "go_win_rate": round(go_hits / len(go), 3) if go else None,
+        "avoid_n": len(avoid),
+        "avoid_hit_rate": round(avoid_hits / len(avoid), 3) if avoid else None,
+        "overall_n": decisive,
+        "overall_win_rate": round((go_hits + avoid_hits) / decisive, 3) if decisive else None,
+        "avg_er_good": round(sum(r["realized_er"] for r in go) / len(go), 3) if go else None,
+        "avg_er_avoid": round(sum(r["realized_er"] for r in avoid) / len(avoid), 3) if avoid else None,
+    }
+
+
 def accuracy_summary() -> dict:
     """Phase-1 track record: how often the tool's call matched the realized day.
 
-    A GO call (score >= good, not vetoed) is "correct" when the day trended
-    (DIRECTIONAL); an AVOID call (score < caution) is "correct" when it chopped
-    (CHOPPY). The headline win rate is correct calls over all such decisive calls;
-    the middle "be selective" band is not counted. VETO is tracked separately.
+    Graded on `overall` - the number the gauge actually SHOWED - because that is
+    the whole product for someone who never sees the factors underneath it. That
+    includes gated days: if the gauge reads 93 on a VETO morning, the user can act
+    on 93, so it has to be scored as the GO call it looks like. (The old basis
+    graded the raw pre-gate score and dropped VETO days entirely, which measured
+    something nobody is ever shown.)
+
+    `raw_score` reports the same win rates on `direction_quality` with the gate
+    left out, so the two can be compared directly: if folding the gate into the
+    needle earns its keep, the shown basis should beat the raw one.
     """
     cfg = get_config()
     good, caution = cfg["thresholds"]["good"], cfg["thresholds"]["caution"]
@@ -129,41 +159,28 @@ def accuracy_summary() -> dict:
 
     summary = {
         "samples": len(rows), "good_threshold": good, "caution_threshold": caution,
+        "basis": "overall",
         "avg_er_good": None, "avg_er_avoid": None,
         "veto_days": 0, "veto_chop_rate": None,
         "go_n": 0, "go_win_rate": None,
         "avoid_n": 0, "avoid_hit_rate": None,
         "overall_n": 0, "overall_win_rate": None,
+        "raw_score": None,
     }
     if not rows:
         return summary
 
-    def _tradeable(r):
-        return r["tier"] not in ("VETO", "CLOSED") and r["direction_quality"] is not None
+    shown = [(r["overall"], r) for r in rows
+             if r["tier"] != "CLOSED" and r["overall"] is not None]
+    raw = [(r["direction_quality"], r) for r in rows
+           if r["tier"] not in ("VETO", "CLOSED") and r["direction_quality"] is not None]
 
-    go = [r for r in rows if _tradeable(r) and r["direction_quality"] >= good]
-    avoid = [r for r in rows if _tradeable(r) and r["direction_quality"] < caution]
+    summary.update(_decisive_stats(shown, good, caution))
+    summary["raw_score"] = _decisive_stats(raw, good, caution)
+
     veto = [r for r in rows if r["tier"] == "VETO"]
-
-    if go:
-        summary["avg_er_good"] = round(sum(r["realized_er"] for r in go) / len(go), 3)
-    if avoid:
-        summary["avg_er_avoid"] = round(sum(r["realized_er"] for r in avoid) / len(avoid), 3)
     summary["veto_days"] = len(veto)
     if veto:
         summary["veto_chop_rate"] = round(
             sum(1 for r in veto if r["realized_label"] == "CHOPPY") / len(veto), 3)
-
-    go_hits = sum(1 for r in go if r["realized_label"] == "DIRECTIONAL")
-    avoid_hits = sum(1 for r in avoid if r["realized_label"] == "CHOPPY")
-    summary["go_n"], summary["avoid_n"] = len(go), len(avoid)
-    if go:
-        summary["go_win_rate"] = round(go_hits / len(go), 3)
-    if avoid:
-        summary["avoid_hit_rate"] = round(avoid_hits / len(avoid), 3)
-
-    decisive = len(go) + len(avoid)
-    if decisive:
-        summary["overall_n"] = decisive
-        summary["overall_win_rate"] = round((go_hits + avoid_hits) / decisive, 3)
     return summary
