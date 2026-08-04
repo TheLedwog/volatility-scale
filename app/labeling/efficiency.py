@@ -152,6 +152,55 @@ def run_regrade(days: int = 60) -> dict:
     return {"regraded": regraded, "skipped": skipped, "days": lookback}
 
 
+_FINGERPRINT_KEY = "label_thresholds_applied"
+
+
+def _threshold_fingerprint(cfg: dict) -> str:
+    th = cfg["thresholds"]
+    return f"{th['label_directional_er']}/{th['label_choppy_er']}"
+
+
+def regrade_if_thresholds_changed() -> dict:
+    """Re-label stored sessions when the label cutoffs have moved since they were graded.
+
+    A track record only means anything if every row was graded by the same rule, and
+    yfinance serves ~60 days of 5-min bars: a threshold change that isn't applied
+    promptly strands older rows on the old basis permanently. So this runs at startup
+    and re-grades once, keyed on a fingerprint of the cutoffs.
+
+    The fingerprint is only advanced on success, so a failed upstream fetch just means
+    it tries again on the next boot rather than silently marking the job done.
+    """
+    cfg = get_config()
+    want = _threshold_fingerprint(cfg)
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT value FROM config WHERE key=?", (_FINGERPRINT_KEY,)
+        ).fetchone()
+    finally:
+        conn.close()
+    have = row["value"] if row else None
+    if have == want:
+        return {"regraded": 0, "reason": "thresholds unchanged"}
+
+    result = run_regrade()
+    if result.get("error"):
+        return {"regraded": 0, "error": result["error"], "from": have, "to": want}
+
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO config(key, value) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (_FINGERPRINT_KEY, want),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"regraded": len(result.get("regraded", [])), "from": have, "to": want}
+
+
 def _store(r: dict) -> None:
     conn = get_conn()
     try:

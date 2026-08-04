@@ -186,12 +186,26 @@ def build_context(cfg: dict, price, events: list[dict], d: date, news: dict | No
 # Individual factor curves
 # --------------------------------------------------------------------------- #
 def _f_prior(ctx):
+    """Chop risk from the previous session's efficiency - which MEAN-REVERTS.
+
+    This curve was `1 - er`: yesterday trended, so today should too. Measured over
+    723 backfilled sessions it is the other way round - spearman(prior_er,
+    session_er) = -0.081, and the days the old curve called cleanest ran ER 0.404
+    against 0.456 for the ones it called riskiest. At 0.30 weight it was the single
+    largest input and it was pointing backwards, which is most of why the blended
+    score came out mildly anti-predictive (spearman -0.070).
+
+    The effect is small (~2 SE) and 0.30 weight is not defensible on evidence that
+    thin - but correcting a sign is not the same as tuning a weight, and reweighting
+    inputs that all sit at the noise floor cannot manufacture signal. The weights
+    stay put until there are factors worth weighting.
+    """
     er = ctx["prior_er"]
     if er is None:
         return 0.5, False, "no completed prior session"
     src = ctx.get("prior_er_source")
     detail = f"prior-day efficiency {er:.2f}"
-    return _clamp(1 - er), True, f"{detail} ({src})" if src else detail
+    return _clamp(er), True, f"{detail} ({src})" if src else detail
 
 
 def _f_event_noise(ctx):

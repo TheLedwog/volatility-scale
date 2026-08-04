@@ -159,6 +159,16 @@ def _startup() -> None:
     except Exception as exc:  # noqa: BLE001
         print(f"[startup] gate-multiplier backfill skipped: {exc}")
     try:
+        # Re-grade stored sessions if the label cutoffs have moved since they were
+        # graded - a mixed-basis track record measures the thresholds, not the tool.
+        # No-ops when they haven't (the common case), so this costs nothing per boot.
+        from .labeling.efficiency import regrade_if_thresholds_changed
+        r = regrade_if_thresholds_changed()
+        if r.get("regraded") or r.get("error"):
+            print(f"[startup] label re-grade: {r}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[startup] label re-grade skipped: {exc}")
+    try:
         # Warm the calendar cache so a fresh deploy (empty volume) can serve /calendar
         # and gate a prediction immediately, instead of waiting for the first scheduled
         # refresh. No-ops when the cache is already fresh.

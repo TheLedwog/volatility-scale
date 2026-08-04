@@ -49,15 +49,22 @@ DEFAULTS: dict = {
         "warn_score_multiplier": 0.6,
         "dead_day_range_pct": 0.40, # ATR% below this -> low-opportunity flag
         # Cutoffs that turn the realized full-session 5-min efficiency ratio into a
-        # CHOPPY/MIXED/DIRECTIONAL label. Calibrated to the 5-MIN scale, NOT the
-        # coarser hourly-bar ER the ML bootstrap used: a 5-min session has ~10x the
-        # path of an hourly one, so its ER runs far lower (60-day full-session:
-        # median ~0.10, 90th pct ~0.24, max ~0.39). The old 0.50/0.30 were hourly-
-        # scale values and graded ~95% of real days CHOPPY with DIRECTIONAL literally
-        # unreachable (0/60 days). At 0.28/0.08 a dead round-trip reads CHOPPY, a
-        # middling day MIXED, and only a genuinely clean one-way glide DIRECTIONAL.
-        "label_directional_er": 0.28,
-        "label_choppy_er": 0.08,
+        # CHOPPY/MIXED/DIRECTIONAL label, set as PERCENTILES of the measured 5-min
+        # distribution (59 sessions: p30 0.040, median 0.097, p70 0.147, p90 0.226,
+        # p95 0.271). That window is representative - its hourly-ER median 0.389
+        # matches the 3-year backfill's 0.390.
+        #
+        # These were 0.28/0.08, which is the top 5% and the bottom 42%: DIRECTIONAL
+        # was so rare that "we said GO and the day trended" was near unwinnable by
+        # construction - a perfect oracle scores ~5% - so the track record measured
+        # the threshold, not the tool. At p70/p30 the mix is roughly 30/40/30 and a
+        # win rate can actually be won or lost.
+        #
+        # Changing these makes stored labels incomparable, so app.labeling.efficiency
+        # re-grades on startup when they move (yfinance only serves ~60 days of 5-min
+        # bars, so a delayed re-grade strands older rows on the old basis forever).
+        "label_directional_er": 0.15,
+        "label_choppy_er": 0.04,
     },
     "gate": {
         # Categories that VETO the day if scheduled intra-session.
