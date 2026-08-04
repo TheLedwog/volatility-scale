@@ -132,17 +132,31 @@ DEFAULTS: dict = {
     },
     "news": {
         "enabled": True,            # fetch headlines; GPT read needs an OpenAI key
-        # "webz" = Webz.io primary with GDELT as the automatic backstop (the chain is
-        # built in app/providers/__init__.py). "gdelt" forces the old single feed.
-        "provider": "webz",
+        # Feeds are tried in order; the first to return headlines wins (chain built in
+        # app/providers/__init__.py). GDELT leads because it classifies by GKG THEME
+        # rather than title keywords, so it surfaces the actual catalysts - Fed
+        # leadership, policy shifts, geopolitics - that a keyword query can only find
+        # if you already knew the name to search for. Webz backs it up because it is
+        # token-authenticated: GDELT rate-limits by IP and a deployed host shares its
+        # IP reputation with every other tenant, which is what blanked the factor on
+        # 2026-08-04. Each feed covers the other's actual weakness.
+        "provider_chain": ["gdelt", "webz"],
+        "provider": "gdelt",   # legacy single-feed key, used if provider_chain is unset
         "max_headlines": 25,
         # Relevance sort + GDELT GKG *theme* filters (not loose keyword OR over full
         # article text, which pulled newest-anything junk like celebrity/gadget stories).
         "sort": "hybridrel",
         "require_finance_terms": True,  # drop any headline whose title isn't market-related
         "extra_finance_terms": [],      # optional extra keep-terms (e.g. specific tickers)
+        # sourcecountry:US is doing real work. The themes are global, so without it the
+        # feed returned mostly South Korean inflation, RBI policy and Indian bank
+        # shares - markets that don't trade in the NY session - and the GPT read
+        # averages over every headline, so that ballast dragged the assessment. With
+        # it, the same slot returned Warsh floating fewer Fed meetings, JPMorgan on his
+        # press conference, Williams on inflation: actual catalysts for THIS session.
         "query": ('(theme:ECON_STOCKMARKET OR theme:ECON_INTEREST_RATE OR '
-                  'theme:ECON_INFLATION OR theme:ECON_CENTRALBANK) sourcelang:eng'),
+                  'theme:ECON_INFLATION OR theme:ECON_CENTRALBANK) '
+                  'sourcelang:eng sourcecountry:US'),
         # --- Webz.io ---------------------------------------------------------------
         # Elasticsearch boolean syntax. Filtering at SOURCE on title terms + finance
         # sites is the point: GDELT's theme query returned globally-themed noise (four
