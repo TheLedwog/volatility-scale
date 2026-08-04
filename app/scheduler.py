@@ -35,6 +35,16 @@ def _safe_calendar():
         print(f"[scheduler] calendar refresh failed: {exc}")
 
 
+def _safe_news():
+    try:
+        from .jobs.news_refresh import refresh_news
+        r = refresh_news()
+        if not r.get("ok"):
+            print(f"[scheduler] news warm-up not scored yet: {r}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[scheduler] news refresh failed: {exc}")
+
+
 def start_scheduler():
     global _scheduler
     cfg = get_config()
@@ -51,6 +61,7 @@ def start_scheduler():
     predict_t = parse_hhmm(sch_cfg.get("predict_time", "09:30"))
     label_t = parse_hhmm(sch_cfg.get("label_time", "16:20"))
     cal_times = sch_cfg.get("calendar_refresh_times") or ["06:00", "12:00", "18:00", "22:00"]
+    news_times = sch_cfg.get("news_refresh_times") or ["07:30", "08:30", "09:20"]
 
     _scheduler = BackgroundScheduler(timezone=ET)
     _scheduler.add_job(
@@ -77,7 +88,22 @@ def start_scheduler():
             id=f"calendar_{i}", replace_existing=True,
         )
 
+    # Warm the news read before the open (mon-fri). Each run no-ops once the day is
+    # cached and scored, so several attempts cost one upstream call - which is the
+    # point: a 429 at 09:30 used to blank the factor for the whole session.
+    for i, raw in enumerate(news_times):
+        try:
+            t = parse_hhmm(raw)
+        except Exception:  # noqa: BLE001 - a bad time in Settings shouldn't kill the app
+            print(f"[scheduler] bad news_refresh_time {raw!r}, skipped")
+            continue
+        _scheduler.add_job(
+            _safe_news,
+            CronTrigger(day_of_week="mon-fri", hour=t.hour, minute=t.minute, timezone=ET),
+            id=f"news_{i}", replace_existing=True,
+        )
+
     _scheduler.start()
     print(f"[scheduler] started - predict {predict_t:%H:%M} ET, label {label_t:%H:%M} ET, "
-          f"calendar {', '.join(cal_times)} ET (daily)")
+          f"calendar {', '.join(cal_times)} ET (daily), news {', '.join(news_times)} ET")
     return _scheduler

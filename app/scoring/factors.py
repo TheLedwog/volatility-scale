@@ -253,10 +253,31 @@ def _f_structural(ctx):
     return _clamp(0.2 + 0.2 * n, 0.0, 0.95), True, detail
 
 
+def _news_unavailable_detail(n: dict | None) -> str:
+    """Say which step actually failed, rather than always blaming a missing key.
+
+    This read "news not scored (add OpenAI key in Settings)" for every failure mode.
+    When GDELT 429s the headline fetch there are no headlines, so the LLM is never
+    called and the key is never consulted - but the card still told you to go and
+    add a key that was already there. Cost real debugging time on 2026-08-04.
+    """
+    if not n:
+        return "news not scored"
+    err = (n.get("error") or "").strip()
+    if not n.get("headlines"):
+        short = err.split(" for url:")[0][:70]  # GDELT errors carry a huge URL
+        if not short or short == "no headlines":
+            return "no headlines fetched"
+        return f"no headlines fetched ({short})"
+    if err:
+        return f"news scoring failed ({err[:70]})"
+    return "news not scored (add OpenAI key in Settings)"
+
+
 def _f_news(ctx):
     n = ctx.get("news")
     if not n or not n.get("scored") or n.get("chop_risk") is None:
-        return 0.5, False, "news not scored (add OpenAI key in Settings)"
+        return 0.5, False, _news_unavailable_detail(n)
     rationale = (n.get("rationale") or "")[:80]
     detail = f"{n.get('direction', '?')}, impact {n.get('expected_impact')}: {rationale}"
     return _clamp(float(n["chop_risk"])), True, detail

@@ -110,6 +110,11 @@ DEFAULTS: dict = {
         # feed over to the new week some time after Friday's close, and the weekend
         # runs are what pull next week's events in for the week-ahead view.
         "calendar_refresh_times": ["06:00", "12:00", "18:00", "22:00"],
+        # Warm the news read before the open. GDELT rate-limits its free endpoint, and
+        # one 429 landing on the predict job blanks a factor worth 25% of the weight
+        # for the whole session - so try well ahead of it. Each run no-ops once the
+        # day is cached and scored, so these cost one upstream call, not four.
+        "news_refresh_times": ["07:30", "08:30", "09:20"],
     },
     "calendar": {
         # Hours before the cached calendar is considered stale. The economic calendar

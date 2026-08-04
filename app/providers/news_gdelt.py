@@ -5,6 +5,7 @@ NewsProvider interface so a paid feed (Marketaux/Benzinga/etc.) can be dropped i
 """
 from __future__ import annotations
 
+import time
 from datetime import date, timedelta
 
 import requests
@@ -14,6 +15,9 @@ from .base import NewsProvider, filter_market_headlines
 
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (TradeScale Phase4)"}
+# GDELT's free endpoint rate-limits hard, and a deployed host shares its IP reputation
+# with every other tenant - so a single-shot fetch at exactly 09:30 is a coin flip.
+_RETRY_STATUS = (429, 500, 502, 503, 504)
 
 
 class GDELTNewsProvider(NewsProvider):
@@ -26,6 +30,27 @@ class GDELTNewsProvider(NewsProvider):
         self.require_finance = bool(n.get("require_finance_terms", True))
         self.extra_terms = n.get("extra_finance_terms", [])
         self.timeout = timeout
+        self.retries = max(1, int(n.get("fetch_retries", 3)))
+        self.retry_backoff = float(n.get("fetch_retry_backoff_sec", 2.0))
+
+    def _get_with_retry(self, params: dict):
+        """GET with backoff on the transient statuses, notably 429.
+
+        Bounded deliberately: this runs inside the pre-open predict job, so it may
+        cost a few seconds but must never hold the verdict up. The real defence is
+        fetching earlier (jobs/news_refresh.py) - this just stops one unlucky
+        response blanking a factor worth 25% of the weight.
+        """
+        delay, last = self.retry_backoff, None
+        for attempt in range(self.retries):
+            last = requests.get(GDELT_URL, params=params, headers=_HEADERS,
+                                timeout=self.timeout)
+            if last.status_code not in _RETRY_STATUS:
+                return last
+            if attempt < self.retries - 1:
+                time.sleep(delay)
+                delay *= 2
+        return last
 
     def headlines(self, d: date) -> list[str]:
         # Over-fetch so the relevance filter can trim and still leave a full list.
@@ -40,7 +65,7 @@ class GDELTNewsProvider(NewsProvider):
             params["startdatetime"] = d.strftime("%Y%m%d000000")
             params["enddatetime"] = (d + timedelta(days=1)).strftime("%Y%m%d000000")
 
-        resp = requests.get(GDELT_URL, params=params, headers=_HEADERS, timeout=self.timeout)
+        resp = self._get_with_retry(params)
         resp.raise_for_status()
         try:
             data = resp.json()
