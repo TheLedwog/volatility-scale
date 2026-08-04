@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from ..market_calendar import structural_flags
+from ..market_calendar import prev_trading_day, structural_flags
 from ..timeutils import session_window
 from .categories import categorize  # noqa: F401  (kept for parity / future use)
 
@@ -33,6 +33,70 @@ def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, x))
 
 
+def _sessions_before(df: pd.DataFrame, d: date) -> pd.DataFrame:
+    """Daily bars for sessions strictly before `d` - never `d`'s own bar.
+
+    A 09:30 run sees today's just-opened daily bar as the last row: its range is a
+    few ticks wide and |Close-Open| covers all of it, so the prior-day factor read a
+    stub as a perfectly directional session (risk 0.0 at 30% weight). The training
+    path already filters this way - see app/ml/features.py:_last_before.
+    """
+    if df is None or df.empty:
+        return df
+    idx = pd.DatetimeIndex(df.index)
+    if idx.tz is not None:
+        idx = idx.tz_localize(None)  # daily bars are midnight-of-session, keep wall clock
+    return df[idx.normalize().date < d]
+
+
+def _daily_bar_er(row) -> float | None:
+    """|Close-Open| / (High-Low) for one daily bar, or None if the bar is unusable.
+
+    Yahoo intermittently prints an Open (or Close) outside the day's High/Low on
+    ^GSPC. That used to clamp to a perfect 1.00 - a broken bar scoring as the
+    cleanest possible prior day - so reject it instead and let the factor degrade.
+    """
+    try:
+        o, h, lo, c = (float(row["Open"]), float(row["High"]),
+                       float(row["Low"]), float(row["Close"]))
+    except (TypeError, ValueError, KeyError):
+        return None
+    rng = h - lo
+    if rng <= 0 or not (lo <= o <= h) or not (lo <= c <= h):
+        return None
+    return _clamp(abs(c - o) / rng)
+
+
+def _prior_efficiency(daily: pd.DataFrame, d: date) -> tuple[float | None, str | None]:
+    """How directional the last completed session was, and where the number came from.
+
+    Prefers the stored 5-min Kaufman ER - the exact quantity the labeler grades
+    against - so this feature and the target measure the same thing. The daily
+    O/H/L/C proxy is only a stand-in for sessions that were never labelled, and it
+    must be the previous SESSION's bar: a stale bar silently standing in for
+    "yesterday" is the same failure as reading the in-progress one.
+    """
+    prev = prev_trading_day(d)
+    try:
+        from ..store import realized_er_for
+
+        er = realized_er_for(prev.isoformat())
+    except Exception:  # noqa: BLE001 - DB unavailable -> fall back to the proxy
+        er = None
+    if er is not None:
+        return _clamp(float(er)), f"5-min ER, {prev.isoformat()}"
+
+    if daily is None or daily.empty:
+        return None, None
+    idx = pd.DatetimeIndex(daily.index)
+    if idx.tz is not None:
+        idx = idx.tz_localize(None)
+    match = daily[idx.normalize().date == prev]
+    if match.empty:
+        return None, None
+    return _daily_bar_er(match.iloc[-1]), f"daily proxy, {prev.isoformat()}"
+
+
 def _efficiency_ratio(series: pd.Series):
     s = series.dropna()
     if len(s) < 3:
@@ -52,26 +116,25 @@ def build_context(cfg: dict, price, events: list[dict], d: date, news: dict | No
     tickers = cfg["tickers"]
     sess = cfg["session"]
     ctx: dict = {
-        "prior_er": None, "atr_pct": None, "vix": None, "vix3m": None,
+        "prior_er": None, "prior_er_source": None, "atr_pct": None,
+        "vix": None, "vix3m": None,
         "overnight_er": None, "event_count": 0, "structural": {},
         "structural_count": 0, "news": news,
     }
 
-    # Prior-day efficiency (daily proxy) + ATR%
+    # Prior-day efficiency + ATR%, both as of the last COMPLETED session.
     try:
         df = price.daily_history(tickers["primary"], lookback_days=40)
-        if df is not None and not df.empty:
-            last = df.dropna().iloc[-1]
-            rng = float(last["High"]) - float(last["Low"])
-            if rng > 0:
-                ctx["prior_er"] = _clamp(abs(float(last["Close"]) - float(last["Open"])) / rng)
+        completed = _sessions_before(df.dropna() if df is not None else None, d)
+        ctx["prior_er"], ctx["prior_er_source"] = _prior_efficiency(completed, d)
+        if completed is not None and not completed.empty:
             tr = pd.concat([
-                df["High"] - df["Low"],
-                (df["High"] - df["Close"].shift()).abs(),
-                (df["Low"] - df["Close"].shift()).abs(),
+                completed["High"] - completed["Low"],
+                (completed["High"] - completed["Close"].shift()).abs(),
+                (completed["Low"] - completed["Close"].shift()).abs(),
             ], axis=1).max(axis=1)
             atr = float(tr.rolling(14).mean().dropna().iloc[-1])
-            ctx["atr_pct"] = atr / float(df["Close"].dropna().iloc[-1]) * 100.0
+            ctx["atr_pct"] = atr / float(completed["Close"].dropna().iloc[-1]) * 100.0
     except Exception:  # noqa: BLE001
         pass
 
@@ -125,8 +188,10 @@ def build_context(cfg: dict, price, events: list[dict], d: date, news: dict | No
 def _f_prior(ctx):
     er = ctx["prior_er"]
     if er is None:
-        return 0.5, False, "no daily data"
-    return _clamp(1 - er), True, f"prior-day efficiency {er:.2f}"
+        return 0.5, False, "no completed prior session"
+    src = ctx.get("prior_er_source")
+    detail = f"prior-day efficiency {er:.2f}"
+    return _clamp(1 - er), True, f"{detail} ({src})" if src else detail
 
 
 def _f_event_noise(ctx):
