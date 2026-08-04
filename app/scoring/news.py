@@ -82,8 +82,9 @@ def get_news_assessment(cfg: dict, d: date, use_cache: bool = True) -> dict | No
                 return cached
 
     fetch_err = None
+    provider = get_news_provider(cfg)
     try:
-        headlines = get_news_provider(cfg).headlines(d)
+        headlines = provider.headlines(d)
     except Exception as exc:  # noqa: BLE001
         headlines, fetch_err = [], str(exc)
 
@@ -98,7 +99,9 @@ def get_news_assessment(cfg: dict, d: date, use_cache: bool = True) -> dict | No
         "direction": score.get("direction"),
         "chop_risk": score.get("chop_risk"),
         "rationale": score.get("rationale"),
-        "source": cfg["news"].get("provider", "gdelt"),
+        # Which feed actually served this, not which one was configured - with a
+        # fallback chain those differ exactly when you most want to know.
+        "source": getattr(provider, "last_source", None) or cfg["news"].get("provider", "gdelt"),
         "error": score.get("error") or fetch_err or (None if headlines else "no headlines"),
     }
     # Cache headlines too (not just scored results) so repeated runs don't re-hit GDELT.

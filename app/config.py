@@ -128,10 +128,13 @@ DEFAULTS: dict = {
         "openai_api_key": "",
         "openai_model": "gpt-5.6-luna",
         "news_api_key": "",
+        "webz_api_key": "",
     },
     "news": {
         "enabled": True,            # fetch headlines; GPT read needs an OpenAI key
-        "provider": "gdelt",
+        # "webz" = Webz.io primary with GDELT as the automatic backstop (the chain is
+        # built in app/providers/__init__.py). "gdelt" forces the old single feed.
+        "provider": "webz",
         "max_headlines": 25,
         # Relevance sort + GDELT GKG *theme* filters (not loose keyword OR over full
         # article text, which pulled newest-anything junk like celebrity/gadget stories).
@@ -140,6 +143,27 @@ DEFAULTS: dict = {
         "extra_finance_terms": [],      # optional extra keep-terms (e.g. specific tickers)
         "query": ('(theme:ECON_STOCKMARKET OR theme:ECON_INTEREST_RATE OR '
                   'theme:ECON_INFLATION OR theme:ECON_CENTRALBANK) sourcelang:eng'),
+        # --- Webz.io ---------------------------------------------------------------
+        # Elasticsearch boolean syntax. Filtering at SOURCE on title terms + finance
+        # sites is the point: GDELT's theme query returned globally-themed noise (four
+        # RBI rate stories, Turkish CPI, German retail sales) that the local relevance
+        # net can only trim, never replace, so the GPT read was fed whatever survived.
+        "webz_query": (
+            'title:("stock market" OR stocks OR "Wall Street" OR "Federal Reserve" OR '
+            'FOMC OR Powell OR inflation OR CPI OR "interest rate" OR "rate cut" OR '
+            '"rate hike" OR tariffs OR recession OR "S&P 500" OR Nasdaq OR Treasury OR '
+            'yields OR earnings OR jobs OR payrolls) '
+            'language:english site_category:financial_news'
+        ),
+        # Free tier serves 10 results/call, so a headline set is paginated. This caps
+        # the pages one fetch will pull - the quota is 500 calls/month and a trading
+        # month is ~21 days, so 3 keeps a wide margin.
+        "webz_max_calls": 3,
+        "webz_page_size": 10,
+        # Shared by both feeds: retry the transient statuses (429 especially) before
+        # giving up on a factor worth 25% of the weight.
+        "fetch_retries": 3,
+        "fetch_retry_backoff_sec": 2.0,
     },
 }
 
@@ -199,6 +223,12 @@ def openai_api_key(cfg: dict | None = None) -> str:
     """
     cfg = cfg or get_config()
     return os.environ.get("OPENAI_API_KEY") or cfg.get("providers", {}).get("openai_api_key", "") or ""
+
+
+def webz_api_key(cfg: dict | None = None) -> str:
+    """Resolve the Webz.io token: WEBZ_API_KEY env var first, then stored config."""
+    cfg = cfg or get_config()
+    return os.environ.get("WEBZ_API_KEY") or cfg.get("providers", {}).get("webz_api_key", "") or ""
 
 
 def openai_key_status(cfg: dict | None = None) -> dict:
