@@ -251,7 +251,8 @@ def run_train():
 # else has friendly form controls. No section is edited by both mechanisms, so
 # saves never clobber each other.
 ADVANCED_SECTIONS = ("session", "tickers", "gate", "ml")
-OPENAI_MODELS = ("gpt-4o-mini", "gpt-4o")
+OPENAI_MODELS = ("gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.5",
+                 "gpt-4o-mini", "gpt-4o")
 SCORING_MODES = ("auto", "rules", "model")
 
 

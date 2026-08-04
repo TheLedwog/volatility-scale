@@ -33,6 +33,31 @@ def _clamp01(v):
         return None
 
 
+# Params we'd like but can live without, in the order we're willing to give them up.
+# temperature=0 buys determinism on a scoring task; a model that refuses it still
+# scores fine, just with a little run-to-run wobble.
+_OPTIONAL_PARAMS = ("temperature", "response_format")
+
+
+def _create_with_fallback(client, **kwargs):
+    """Chat completion that retries without any optional param the model rejects.
+
+    Newer models refuse params their predecessors required - gpt-5.x only accepts the
+    default temperature, and returns a 400 naming the field. score_news swallows every
+    exception to degrade gracefully, so without this a model swap would leave the news
+    factor silently unscored (25% of the scoring weight) with nothing but a short
+    error string to show for it.
+    """
+    while True:
+        try:
+            return client.chat.completions.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - only retry the case we recognise
+            param = getattr(exc, "param", None)
+            if param not in _OPTIONAL_PARAMS or param not in kwargs:
+                raise
+            kwargs.pop(param)
+
+
 class OpenAILLMProvider(LLMProvider):
     def score_news(self, headlines: list[str], cfg: dict) -> dict:
         from ..config import openai_api_key
@@ -45,8 +70,9 @@ class OpenAILLMProvider(LLMProvider):
             from openai import OpenAI
 
             client = OpenAI(api_key=api_key)
-            resp = client.chat.completions.create(
-                model=prov.get("openai_model", "gpt-4o-mini"),
+            resp = _create_with_fallback(
+                client,
+                model=prov.get("openai_model", "gpt-5.6-luna"),
                 messages=[
                     {"role": "system", "content": _SYSTEM},
                     {"role": "user", "content": "\n".join(f"- {h}" for h in headlines)},
