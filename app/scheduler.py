@@ -107,3 +107,40 @@ def start_scheduler():
     print(f"[scheduler] started - predict {predict_t:%H:%M} ET, label {label_t:%H:%M} ET, "
           f"calendar {', '.join(cal_times)} ET (daily), news {', '.join(news_times)} ET")
     return _scheduler
+
+
+def stop_scheduler() -> bool:
+    """Shut the running scheduler down. Returns True if there was one."""
+    global _scheduler
+    if _scheduler is None:
+        return False
+    try:
+        _scheduler.shutdown(wait=False)
+    except Exception as exc:  # noqa: BLE001 - already stopped, or never started
+        print(f"[scheduler] shutdown: {exc}")
+    _scheduler = None
+    return True
+
+
+def restart_scheduler():
+    """Rebuild the cron triggers from the current config.
+
+    The triggers are only read at startup, so without this a schedule change saved
+    from the admin API would sit in the database looking applied while the old times
+    kept firing until the next redeploy. Returns the new scheduler, or None when the
+    schedule is disabled (in which case the old one is simply stopped).
+    """
+    stop_scheduler()
+    return start_scheduler()
+
+
+def scheduler_status() -> dict:
+    """What the scheduler is actually going to do next, for the admin panel."""
+    if _scheduler is None:
+        return {"running": False, "jobs": []}
+    jobs = []
+    for job in _scheduler.get_jobs():
+        nxt = getattr(job, "next_run_time", None)
+        jobs.append({"id": job.id, "next_run": nxt.isoformat() if nxt else None})
+    return {"running": bool(getattr(_scheduler, "running", False)),
+            "jobs": sorted(jobs, key=lambda j: j["next_run"] or "")}

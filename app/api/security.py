@@ -1,16 +1,21 @@
 """Auth for the product split, all driven by environment variables.
 
-Two independent gates, deliberately kept separate:
+Three independent gates, deliberately kept separate:
 
-* ``API_KEY`` guards the JSON API (``/api/v1/*``). The Next.js server holds it and
-  calls the backend server-side (``Authorization: Bearer <key>`` or ``X-API-Key``),
-  so the key never reaches the browser. This is the "secure connection" between
-  frontend and backend before real user accounts exist.
+* ``API_KEY`` guards the read-only JSON API (``/api/v1/*``). The Next.js server holds
+  it and calls the backend server-side (``Authorization: Bearer <key>`` or
+  ``X-API-Key``), so the key never reaches the browser. This is the "secure
+  connection" between frontend and backend before real user accounts exist.
+* ``ADMIN_API_KEY`` guards the mutating admin API (``/api/v1/admin/*``), which the
+  frontend's admin panel drives. Separate from ``API_KEY`` so that holding the
+  read key does not confer the ability to rewrite the engine's settings, and so the
+  two rotate independently.
 * ``ADMIN_USER`` / ``ADMIN_PASS`` gate the Jinja admin/testing UI with HTTP Basic.
 
-If the relevant env vars are unset the gate is OPEN - so local development (and the
-existing setup on the dev box) behaves exactly as before, while the deployed host
-locks down simply by setting the vars.
+If ``API_KEY`` or the Basic credentials are unset that gate is OPEN - so local
+development (and the existing setup on the dev box) behaves exactly as before, while
+the deployed host locks down simply by setting the vars. ``ADMIN_API_KEY`` is the
+exception and fails CLOSED; see ``require_admin_key``.
 """
 from __future__ import annotations
 
@@ -44,6 +49,46 @@ async def require_api_key(request: Request) -> None:
             detail="Invalid or missing API key",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def admin_api_key() -> str | None:
+    return os.environ.get("ADMIN_API_KEY") or None
+
+
+async def require_admin_key(request: Request) -> None:
+    """FastAPI dependency: enforce ``ADMIN_API_KEY`` on the mutating admin API.
+
+    Unlike ``require_api_key`` this FAILS CLOSED. An unset ``API_KEY`` only leaves a
+    read-only score exposed, which is why it defaults to open for local dev; an unset
+    ``ADMIN_API_KEY`` would let anyone on the internet rewrite the weights, the
+    thresholds and the provider keys. "Not configured" therefore has to mean "refuse",
+    not "allow" - a 503 on a dev box you forgot to configure is a nuisance, the
+    alternative is a takeover.
+    """
+    expected = admin_api_key()
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin API is disabled: set ADMIN_API_KEY to enable it.",
+        )
+    got = _present_key(request)
+    if not got or not secrets.compare_digest(got, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing admin API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def admin_key_warning() -> str | None:
+    """Startup sanity check: an admin key equal to the read key defeats the split."""
+    admin, read = admin_api_key(), api_key()
+    if admin and read and secrets.compare_digest(admin, read):
+        return ("ADMIN_API_KEY is identical to API_KEY - anything holding the read key "
+                "can also write settings. Generate a separate value.")
+    if admin and len(admin) < 24:
+        return "ADMIN_API_KEY is short; use a long random value (32+ chars)."
+    return None
 
 
 def admin_credentials() -> tuple[str, str] | None:
