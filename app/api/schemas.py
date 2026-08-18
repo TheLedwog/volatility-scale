@@ -35,6 +35,24 @@ class ModelInfo(BaseModel):
     note: str | None = None
 
 
+class Tradeability(BaseModel):
+    """The tradeability engine's read (app/scoring/tradeability.py).
+
+    ADDITIVE - present alongside every existing field, never replacing one. While
+    `mode` is "shadow" this is informational only and `gauge` still carries the rule
+    engine's score; when it is "live" `score` here equals `gauge.direction_quality`.
+    """
+    mode: str                          # shadow | live
+    score: int | None = None           # 1..100 percentile of expected net move
+    band: str | None = None            # thin | normal | best
+    expected_net_pct: float | None = None      # forecast |close-open| as % of open
+    expected_range_pct: float | None = None    # forecast high-low as % of open
+    expected_efficiency: float | None = None   # forecast share of range kept as net
+    fitted_at: str | None = None       # when the model behind this was fitted
+    n_samples: int | None = None       # sessions it was fitted on
+    error: str | None = None
+
+
 class TodayResponse(BaseModel):
     has_prediction: bool
     date: str | None = None
@@ -54,6 +72,10 @@ class TodayResponse(BaseModel):
     model: ModelInfo | None = None
     factors: list[dict] = []
     events: list[dict] = []
+    # Both additive. `factors` above keeps the rule-engine rows in every mode, so an
+    # existing client is untouched; `legs` is the tradeability breakdown to migrate to.
+    tradeability: Tradeability | None = None
+    legs: list[dict] = []
 
 
 class CalendarStatus(BaseModel):
@@ -118,6 +140,12 @@ class HistoryRow(BaseModel):
     realized_er: float | None = None
     realized_label: str | None = None
     range_pct: float | None = None
+    # Additive: what the tradeability engine said that day (shadow or live), so the
+    # two scores can be compared over the same sessions.
+    tradeability_score: int | None = None
+    # Realised net move |close-open| as % of open - the target the tradeability score
+    # predicts. Filled in by the labeler; None for sessions graded before it existed.
+    realized_net_pct: float | None = None
 
 
 class HistoryResponse(BaseModel):

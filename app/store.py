@@ -65,7 +65,8 @@ def recent_history(limit: int = 40) -> list[dict]:
         rows = conn.execute(
             """
             SELECT p.date, p.tier, p.direction_quality, p.verdict, p.reason,
-                   p.features_json, o.realized_er, o.realized_label, o.range_pct
+                   p.features_json, o.realized_er, o.realized_label, o.range_pct,
+                   o.realized_net_pct
             FROM predictions p
             LEFT JOIN outcomes o ON o.date = p.date
             ORDER BY p.date DESC
@@ -92,6 +93,7 @@ def recent_history(limit: int = 40) -> list[dict]:
         pred = {"tier": d["tier"], "direction_quality": d["direction_quality"],
                 "features": features}
         d["overall"] = overall_score(pred, cfg, cal)
+        d["tradeability_score"] = (features.get("tradeability") or {}).get("score")
         out.append(d)
     return out
 

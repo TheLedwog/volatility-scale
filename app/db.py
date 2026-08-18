@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS outcomes (
     range_pct      REAL,                  -- range as % of open
     realized_label TEXT,                  -- DIRECTIONAL | MIXED | CHOPPY
     bars           INTEGER,
-    computed_at    TEXT
+    computed_at    TEXT,
+    realized_net_pct REAL                 -- |close-open| as % of open (tradeability target)
 );
 
 CREATE TABLE IF NOT EXISTS model_versions (
@@ -97,6 +98,20 @@ CREATE TABLE IF NOT EXISTS calendar_fetch (
     events     INTEGER,                -- events seen in the last successful fetch
     attempted_at TEXT                  -- last attempt, success or not
 );
+
+-- Fitted tradeability model (app/scoring/tradeability.py): both ridge legs, plus the
+-- trailing reference distribution the 1-100 percentile is taken against. Append-only,
+-- newest row wins - so a bad refit can be rolled back by deleting one row, and the
+-- fit history stays auditable. The payload is small (a few hundred floats).
+CREATE TABLE IF NOT EXISTS tradeability_model (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at   TEXT NOT NULL,
+    n_samples    INTEGER,
+    date_from    TEXT,
+    date_to      TEXT,
+    payload_json TEXT NOT NULL,
+    notes        TEXT
+);
 """
 
 
@@ -108,10 +123,27 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+# Columns added to tables that already exist in deployed databases. CREATE TABLE IF
+# NOT EXISTS silently leaves an existing table alone, so a new column has to be
+# ALTERed in. Each entry is (table, column, definition) and is applied only when the
+# column is genuinely absent, so this stays idempotent across restarts.
+_MIGRATIONS = [
+    ("outcomes", "realized_net_pct", "REAL"),
+]
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    for table, column, decl in _MIGRATIONS:
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if cols and column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def init_db() -> None:
     conn = get_conn()
     try:
         conn.executescript(SCHEMA)
+        _apply_migrations(conn)
         conn.commit()
     finally:
         conn.close()
