@@ -13,9 +13,16 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .api.admin import router as admin_router
 from .api.routes import router as api_router
-from .api.ratelimit import ADMIN_LIMIT, API_LIMIT, check as ratelimit_check, client_ip
-from .api.security import admin_credentials, check_basic_auth
+from .api.ratelimit import (
+    ADMIN_API_LIMIT,
+    ADMIN_LIMIT,
+    API_LIMIT,
+    check as ratelimit_check,
+    client_ip,
+)
+from .api.security import admin_credentials, admin_key_warning, check_basic_auth
 from .config import (
     get_config,
     openai_api_key as resolve_openai_key,
@@ -28,6 +35,8 @@ from .labeling.efficiency import run_labeling, run_regrade
 from .scoring.calibration import calibrate
 from .scoring.engine import run_prediction
 from .scoring.live import live_session
+from .service.settings_schema import OPENAI_MODELS, SCORING_MODES
+from .service.settings_service import JSON_SECTIONS
 from .service.verdict import (
     computed_at_str,
     display_state,
@@ -57,13 +66,21 @@ if _origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_origins,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        # PUT/DELETE are the admin settings surface. Only needed if the panel ever
+        # calls the backend from the browser; server-side calls from Next.js don't
+        # trigger CORS at all, which remains the recommended path (it keeps the key
+        # off the client).
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-API-Key"],
         allow_credentials=False,
     )
 
 # The JSON product API (/api/v1/*), guarded by its own API key (see api/security.py).
 app.include_router(api_router)
+# The settings/admin API (/api/v1/admin/*), behind a SEPARATE key so holding the
+# read key confers no ability to rewrite the engine. Included after the product
+# router; the prefixes don't overlap on any method, so ordering is not load-bearing.
+app.include_router(admin_router)
 
 # Defence-in-depth response headers. The app ships no third-party/inline scripts,
 # so script-src can stay locked to 'self'; inline style attributes (dynamic gauge /
@@ -124,7 +141,11 @@ async def _rate_limit(request: Request, call_next):
     any auth check or handler work."""
     path = request.url.path
     if not path.startswith(_RATELIMIT_EXEMPT):
-        if path.startswith("/api/"):
+        if path.startswith("/api/v1/admin"):
+            # Checked before the generic /api/ case: the mutating surface must not
+            # inherit the deliberately generous product-API bucket.
+            bucket, (max_n, window) = "admin_api", ADMIN_API_LIMIT
+        elif path.startswith("/api/"):
             bucket, (max_n, window) = "api", API_LIMIT
         else:
             bucket, (max_n, window) = "admin", ADMIN_LIMIT
@@ -141,6 +162,9 @@ async def _rate_limit(request: Request, call_next):
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
+    warning = admin_key_warning()
+    if warning:
+        print(f"[startup] WARNING: {warning}")
     try:
         from .ml.seed_news import seed_if_empty
         n = seed_if_empty()
@@ -270,10 +294,11 @@ def run_train():
 # The "Advanced" card edits these structural sections as raw JSON. Everything
 # else has friendly form controls. No section is edited by both mechanisms, so
 # saves never clobber each other.
-ADVANCED_SECTIONS = ("session", "tickers", "gate", "ml")
-OPENAI_MODELS = ("gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.5",
-                 "gpt-4o-mini", "gpt-4o")
-SCORING_MODES = ("auto", "rules", "model")
+#
+# ADVANCED_SECTIONS and the choice lists come from service/settings_schema, alongside
+# the field definitions the admin API validates against, so this page and the frontend
+# panel can't end up offering different options.
+ADVANCED_SECTIONS = JSON_SECTIONS
 
 
 @app.get("/settings")

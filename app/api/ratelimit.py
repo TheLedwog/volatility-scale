@@ -5,12 +5,16 @@ is enough and needs no external store like Redis. Its main jobs are to blunt
 brute-force against the admin Basic auth and to stop abuse of the unauthenticated
 surface - the API key is still the real gate on /api/v1.
 
-Two buckets, both env-overridable as "MAX/WINDOW_SECONDS":
-* admin  (RATELIMIT_ADMIN, default 30/60)  - the browser/admin UI + auth attempts,
-  where per-IP is meaningful (a human, or a brute-force script).
-* api    (RATELIMIT_API,   default 240/60) - deliberately generous: legitimate
+Three buckets, all env-overridable as "MAX/WINDOW_SECONDS":
+* admin      (RATELIMIT_ADMIN,     default 30/60)  - the browser/admin UI + auth
+  attempts, where per-IP is meaningful (a human, or a brute-force script).
+* api        (RATELIMIT_API,       default 240/60) - deliberately generous: legitimate
   traffic arrives from the frontend's SERVER (a few shared Vercel IPs), so a tight
   per-IP cap would throttle real users. This is only an abuse backstop.
+* admin_api  (RATELIMIT_ADMIN_API, default 60/60)  - the mutating admin API. It must
+  not inherit the generous `api` bucket just because it lives under /api/, but the
+  tight `admin` one is too tight: the settings panel polls a running job every couple
+  of seconds, so a 30-minute train would trip a 30/60 cap on polling alone.
 """
 from __future__ import annotations
 
@@ -32,6 +36,7 @@ def _parse_limit(env_name: str, default_max: int, default_window: int) -> tuple[
 
 ADMIN_LIMIT = _parse_limit("RATELIMIT_ADMIN", 30, 60)
 API_LIMIT = _parse_limit("RATELIMIT_API", 240, 60)
+ADMIN_API_LIMIT = _parse_limit("RATELIMIT_ADMIN_API", 60, 60)
 
 _hits: dict[tuple[str, str], tuple[float, int]] = {}
 _lock = threading.Lock()
