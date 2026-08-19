@@ -77,6 +77,35 @@ DEFAULTS: dict = {
     # Soft-score engine: "auto" uses the trained model if data/model.joblib exists,
     # else falls back to the rule-based factors. "rules" / "model" force one.
     "scoring": {"mode": "auto"},
+    # The tradeability engine (app/scoring/tradeability.py) - scores the MOVE the day
+    # is likely to offer instead of guessing chop-vs-trend. See that module's docstring
+    # for the measurements behind it.
+    "tradeability": {
+        "enabled": True,
+        # shadow: compute + store it alongside the live score, change nothing a user
+        #   sees. live: it becomes direction_quality and drives the verdict.
+        # Start in shadow so both numbers can be compared on real days before the
+        # headline moves.
+        "mode": "shadow",
+        # Sessions of REALISED net moves the score is ranked against - i.e. how many
+        # sessions define "a normal day". ~1000 is four years, long enough to span a
+        # volatility cycle so the scale does not re-base itself into meaninglessness
+        # during a quiet stretch. Walk-forward: 1000 -> rho +0.366, 3.07x top/bottom;
+        # 500 -> +0.336, 2.80x.
+        "reference_window": 1000,
+        "refit_days": 7,           # refit when the stored model is older than this
+        "history_days": 2600,      # ~10y of daily bars to fit on
+        "min_samples": 400,        # refuse to fit on less; keep the previous model
+        "ridge_lambda": 10.0,
+        # Band cuts. Set on the score's MEASURED distribution (p25 38, median 45,
+        # p75 57), not on a naive 0-100 split: the score is a forecast percentile and
+        # a predictor this strength does not reach the extremes. 38/60 gives a
+        # 27/53/20% thin/normal/best mix with 2.66x more net move in the top band than
+        # the bottom, and on top-band days a 42% chance of a >1% move against 6% on
+        # thin days.
+        "band_good": 60,
+        "band_caution": 38,
+    },
     # Learns the VETO/WARN discount from realized outcomes (mirrors CALIB_DEFAULTS in
     # app/scoring/calibration.py). Shrinks toward the thresholds priors when data is thin.
     "calibration": {

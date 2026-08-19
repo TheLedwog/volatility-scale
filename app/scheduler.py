@@ -45,6 +45,32 @@ def _safe_news():
         print(f"[scheduler] news refresh failed: {exc}")
 
 
+def _safe_tradeability_refit():
+    """Weekly refit of the tradeability model.
+
+    This is the loop the old ML path never had: its Spearman was frozen inside a
+    joblib file that only a manual retrain ever touched, so the model could never
+    improve from accumulating data. Here the fit and the reference distribution both
+    re-derive from upstream history on a schedule, so the scale keeps re-basing itself
+    to the current volatility regime without anyone clicking anything.
+    """
+    try:
+        from .config import get_config
+        from .providers import get_price_provider
+        from .scoring.tradeability import refit
+        cfg = get_config()
+        if not cfg.get("tradeability", {}).get("enabled", False):
+            return
+        r = refit(cfg, get_price_provider())
+        if r.get("ok"):
+            print(f"[scheduler] tradeability refit ok - {r['n_samples']} sessions "
+                  f"through {r['date_to']}")
+        else:
+            print(f"[scheduler] tradeability refit failed: {r.get('error')}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[scheduler] tradeability refit failed: {exc}")
+
+
 def start_scheduler():
     global _scheduler
     cfg = get_config()
@@ -103,9 +129,19 @@ def start_scheduler():
             id=f"news_{i}", replace_existing=True,
         )
 
+    # Refit the tradeability model weekly, on Saturday, well clear of a session. The
+    # predict path also refits on demand when the stored model ages past
+    # tradeability.refit_days, so this is the tidy path rather than the only one.
+    _scheduler.add_job(
+        _safe_tradeability_refit,
+        CronTrigger(day_of_week="sat", hour=5, minute=30, timezone=ET),
+        id="tradeability_refit", replace_existing=True,
+    )
+
     _scheduler.start()
     print(f"[scheduler] started - predict {predict_t:%H:%M} ET, label {label_t:%H:%M} ET, "
-          f"calendar {', '.join(cal_times)} ET (daily), news {', '.join(news_times)} ET")
+          f"calendar {', '.join(cal_times)} ET (daily), news {', '.join(news_times)} ET, "
+          f"tradeability refit Sat 05:30 ET")
     return _scheduler
 
 

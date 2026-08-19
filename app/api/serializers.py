@@ -46,6 +46,13 @@ def serialize_today(pred: dict | None, cfg: dict, cal: dict | None = None) -> di
     dq = pred.get("direction_quality")
     mult, _category = tier_multiplier(pred, cfg, cal)
     th = cfg["thresholds"]
+    # Which cut applies depends on which engine produced the stored score: the
+    # tradeability score is a PERCENTILE, so the rule engine's 0-100 chop thresholds
+    # do not describe it. `scored_by` is written at predict time, so a row keeps being
+    # read against the cut it was actually made under even after the mode changes.
+    cfg_t = cfg.get("tradeability", {})
+    caution_cut = (int(cfg_t.get("band_caution", 38))
+                   if features.get("scored_by") == "tradeability" else th["caution"])
 
     return {
         "has_prediction": True,
@@ -54,7 +61,7 @@ def serialize_today(pred: dict | None, cfg: dict, cal: dict | None = None) -> di
         "tier": tier,
         "verdict": pred.get("verdict"),
         "state": display_state(pred, cfg),
-        "trade_ok": tier not in ("VETO", "CLOSED") and (dq is None or dq >= th["caution"]),
+        "trade_ok": tier not in ("VETO", "CLOSED") and (dq is None or dq >= caution_cut),
         "reason": pred.get("reason"),
         "warn_note": pred.get("warn_note"),
         "dead_day": bool(features.get("dead_day")),
@@ -73,4 +80,29 @@ def serialize_today(pred: dict | None, cfg: dict, cal: dict | None = None) -> di
         },
         "factors": features.get("factors") or [],
         "events": features.get("events") or [],
+        "tradeability": _tradeability_block(cfg, features),
+        # The legs travel inside the stored tradeability blob (that is what predict
+        # persists), not as a sibling key - read them from there.
+        "legs": (features.get("tradeability") or {}).get("legs") or [],
+    }
+
+
+def _tradeability_block(cfg: dict, features: dict) -> dict:
+    """The tradeability read for one stored prediction.
+
+    Always returned (never None) so a client can rely on the key existing and read
+    `mode` to know whether the engine is shadowing or driving the headline.
+    """
+    cfg_t = cfg.get("tradeability", {})
+    t = features.get("tradeability") or {}
+    return {
+        "mode": cfg_t.get("mode", "shadow") if cfg_t.get("enabled", False) else "off",
+        "score": t.get("score"),
+        "band": t.get("band"),
+        "expected_net_pct": t.get("expected_net_pct"),
+        "expected_range_pct": t.get("expected_range_pct"),
+        "expected_efficiency": t.get("expected_efficiency"),
+        "fitted_at": t.get("fitted_at"),
+        "n_samples": t.get("n_samples"),
+        "error": t.get("error"),
     }

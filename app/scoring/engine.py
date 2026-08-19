@@ -14,19 +14,29 @@ from ..timeutils import now_et, today_et
 from .calibration import frozen_multiplier
 from .factors import build_context, compute_factors
 from .gate import decide_gate
+from .tradeability import ensure_model, score_day
 
 
 def _verdict(tier: str, dq: int, cfg: dict, dead_day: bool,
-             calendar_unavailable: bool = False) -> tuple[str, str, bool]:
+             calendar_unavailable: bool = False,
+             cuts: tuple[int, int] | None = None) -> tuple[str, str, bool]:
+    """Headline + message + trade_ok for a score.
+
+    `cuts` is (good, caution). It defaults to the rule-engine thresholds; the
+    tradeability engine passes its own percentile band cuts instead, because its
+    score is a percentile and the two scales are not comparable. The verdict STRINGS
+    are deliberately identical either way - the frontend switches on them.
+    """
     th = cfg["thresholds"]
+    good, caution = cuts if cuts else (th["good"], th["caution"])
     if tier == "CLOSED":
         return "Market closed", "No NY session today.", False
     if tier == "VETO":
         return "DON'T TRADE", "High-impact event scheduled during the session.", False
 
-    if dq >= th["good"]:
+    if dq >= good:
         label, msg, ok = "Good to trade", "Conditions look directional.", True
-    elif dq < th["caution"]:
+    elif dq < caution:
         label, msg, ok = "Choppy - avoid", "Conditions look choppy / low-direction.", False
     else:
         label, msg, ok = "Mixed - be selective", "Mixed conditions; pick spots carefully.", True
@@ -119,9 +129,28 @@ def run_prediction(d: date | None = None) -> dict:
         ctx = build_context(cfg, price, events, d, news=news_assessment)
         f = compute_factors(cfg, ctx)
 
+    # Tradeability engine. In "shadow" it is computed and stored but changes nothing
+    # a user sees, so the two scores can be compared on real sessions before the
+    # headline number moves. In "live" it BECOMES direction_quality.
+    trade = None
+    cfg_t = cfg.get("tradeability", {})
+    if cfg_t.get("enabled", False):
+        try:
+            ensure_model(cfg, price)
+            trade = score_day(cfg, price, d)
+        except Exception as exc:  # noqa: BLE001 - never let the new engine break predict
+            trade = {"error": str(exc)}
+
     tier = gate["tier"]
     dq = f["direction_quality"]
-    label, msg, ok = _verdict(tier, dq, cfg, f["dead_day"], calendar_unavailable)
+    cuts = None
+    scored_by = "rules"
+    if cfg_t.get("mode") == "live" and trade and trade.get("score") is not None:
+        dq = trade["score"]
+        cuts = (int(cfg_t.get("band_good", 60)), int(cfg_t.get("band_caution", 38)))
+        scored_by = "tradeability"
+
+    label, msg, ok = _verdict(tier, dq, cfg, f["dead_day"], calendar_unavailable, cuts)
 
     # The event category that set the tier - drives per-category discount learning.
     tier_events = gate.get("veto_events") if tier == "VETO" else gate.get("warn_events")
@@ -136,6 +165,11 @@ def run_prediction(d: date | None = None) -> dict:
     features = {
         "factors": f["factors"],
         "breakdown_kind": f.get("breakdown_kind", "rules"),
+        # Always stored, in both modes: in shadow this is the comparison record, and
+        # once live it is the audit trail for the number that was shown.
+        "tradeability": trade,
+        "scored_by": scored_by,
+        "rules_direction_quality": f["direction_quality"],
         "predicted_er": f.get("predicted_er"),
         "model_version": f.get("model_version"),
         "model_note": model_note,
@@ -159,6 +193,11 @@ def run_prediction(d: date | None = None) -> dict:
         "reason": gate["reason"],
         "warn_note": gate["warn_note"],
         "factors": f["factors"],
+        # ADDITIVE. `factors` keeps the rule-engine rows in BOTH modes so an existing
+        # frontend never sees its shape change; the tradeability legs arrive beside it
+        # under a new key the UI can adopt whenever it's ready. (They are persisted
+        # inside features["tradeability"]["legs"]; this is the live return value.)
+        "legs": (trade or {}).get("legs", []),
         "events": gate["events"],
         "dead_day": f["dead_day"],
         "trade_ok": ok,

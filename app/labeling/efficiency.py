@@ -62,8 +62,14 @@ def _grade_slice(s, d: date, cfg: dict, th: dict) -> dict:
     """
     er = _window_er(s) or 0.0
     session_open = float(s["Open"].astype(float).iloc[0])
+    session_close = float(s["Close"].astype(float).iloc[-1])
     rng = float(s["High"].astype(float).max() - s["Low"].astype(float).min())
     range_pct = (rng / session_open * 100.0) if session_open else 0.0
+    # Net travel: what a directional trade could actually have captured. This is the
+    # target the tradeability engine predicts, and it is low for BOTH failure modes -
+    # a session that round-trips closes where it opened, and a dead session never
+    # moves - which is precisely why it is the right thing to score.
+    net_pct = (abs(session_close - session_open) / session_open * 100.0) if session_open else 0.0
 
     if er >= th["label_directional_er"]:
         label = "DIRECTIONAL"
@@ -76,6 +82,7 @@ def _grade_slice(s, d: date, cfg: dict, th: dict) -> dict:
         "date": d.isoformat(), "realized_er": round(er, 3),
         "realized_range": round(rng, 2), "range_pct": round(range_pct, 3),
         "realized_label": label, "bars": int(len(s)),
+        "realized_net_pct": round(net_pct, 4),
     }
 
 
@@ -208,17 +215,19 @@ def _store(r: dict) -> None:
             """
             INSERT INTO outcomes
                 (date, realized_er, realized_range, range_pct, realized_label,
-                 bars, computed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 bars, computed_at, realized_net_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(date) DO UPDATE SET
                 realized_er=excluded.realized_er,
                 realized_range=excluded.realized_range,
                 range_pct=excluded.range_pct,
                 realized_label=excluded.realized_label,
-                bars=excluded.bars, computed_at=excluded.computed_at
+                bars=excluded.bars, computed_at=excluded.computed_at,
+                realized_net_pct=excluded.realized_net_pct
             """,
             (r["date"], r["realized_er"], r["realized_range"], r["range_pct"],
-             r["realized_label"], r["bars"], now_et().isoformat(timespec="seconds")),
+             r["realized_label"], r["bars"], now_et().isoformat(timespec="seconds"),
+             r.get("realized_net_pct")),
         )
         conn.commit()
     finally:
